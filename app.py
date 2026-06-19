@@ -806,12 +806,18 @@ def handle_google_oauth_callback():
 
     try:
         params = st.query_params
+        st.session_state["oauth_debug_params"] = dict(params)
+
         code = params.get("code")
 
         if code:
+            st.session_state["oauth_debug_code_received"] = True
             exchange_code_for_token(code, user_id=1, company_id=1)
+            st.session_state["oauth_debug_saved"] = True
             st.query_params.clear()
             st.success("Gmail接続が完了しました。")
+        else:
+            st.session_state["oauth_debug_code_received"] = False
     except Exception as e:
         st.error(f"Gmail接続処理エラー: {e}")
 
