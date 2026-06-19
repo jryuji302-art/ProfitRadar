@@ -1,32 +1,9 @@
-import os
 import base64
 from email.utils import parsedate_to_datetime
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-
-SCOPES = [
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/gmail.send",
-]
+from gmail_oauth_web import get_gmail_service_web
 
 def get_gmail_service():
-    creds = None
-
-    if os.path.exists("token.json"):
-        creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-
-    if not creds or not creds.valid:
-        flow = InstalledAppFlow.from_client_secrets_file(
-            "credentials.json",
-            SCOPES
-        )
-        creds = flow.run_local_server(port=0)
-
-        with open("token.json", "w") as token:
-            token.write(creds.to_json())
-
-    return build("gmail", "v1", credentials=creds)
+    return get_gmail_service_web(user_id=1, company_id=1)
 
 def decode_body(payload):
     body = ""
@@ -70,12 +47,13 @@ def fetch_recent_emails(limit=20):
         date = ""
 
         for h in headers:
-            if h["name"].lower() == "subject":
-                subject = h["value"]
-            elif h["name"].lower() == "from":
-                sender = h["value"]
-            elif h["name"].lower() == "date":
-                date = h["value"]
+            name = h.get("name", "").lower()
+            if name == "subject":
+                subject = h.get("value", "")
+            elif name == "from":
+                sender = h.get("value", "")
+            elif name == "date":
+                date = h.get("value", "")
 
         body = decode_body(detail["payload"])
 

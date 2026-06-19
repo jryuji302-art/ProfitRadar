@@ -4,7 +4,6 @@ from datetime import datetime
 from email.mime.text import MIMEText
 from email.utils import parseaddr
 
-from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 DB = "profit_radar.db"
@@ -15,8 +14,8 @@ SCOPES = [
 ]
 
 def get_gmail_service():
-    creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-    return build("gmail", "v1", credentials=creds)
+    from gmail_oauth_web import get_gmail_service_web
+    return get_gmail_service_web(user_id=1, company_id=1)
 
 def init_action_db():
     conn = sqlite3.connect(DB)

@@ -1070,6 +1070,51 @@ with c4:
 
 st.divider()
 
+# ==============================
+# Gmail Web OAuth 接続UI
+# ==============================
+def render_gmail_oauth_settings():
+    import streamlit as st
+    from gmail_oauth_web import (
+        get_authorization_url,
+        exchange_code_for_token,
+        load_credentials,
+        init_gmail_connections_table,
+    )
+
+    st.subheader("Gmail接続")
+
+    init_gmail_connections_table()
+    creds = load_credentials(user_id=1, company_id=1)
+
+    if creds:
+        st.success("Gmail接続済み")
+    else:
+        st.warning("Gmail未接続")
+
+    try:
+        auth_url, state = get_authorization_url()
+        st.link_button("Googleアカウントを接続", auth_url)
+    except Exception as e:
+        st.error(f"OAuth設定エラー: {e}")
+        st.info("Render環境変数 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI を確認してください。")
+
+    st.divider()
+
+    st.caption("Google認証後、URLに表示された code= の値を貼り付けて接続します。")
+    code = st.text_input("認証コード", key="gmail_oauth_code")
+
+    if st.button("Gmail接続を保存"):
+        if not code.strip():
+            st.error("認証コードを入力してください。")
+        else:
+            try:
+                exchange_code_for_token(code.strip(), user_id=1, company_id=1)
+                st.success("Gmail接続を保存しました。画面を再読み込みしてください。")
+            except Exception as e:
+                st.error(f"Gmail接続保存エラー: {e}")
+
+
 tabs = st.tabs([
     "🏠 今日の利益",
     "🔥 今すぐ返信",
@@ -1713,6 +1758,7 @@ if False:
 
 with tabs[4]:
     st.subheader("⚙️ 設定")
+    render_gmail_oauth_settings()
     # AI分析履歴 は app_dev.py に分離済み
 
     st.markdown("### Gmail解析")
@@ -1808,3 +1854,4 @@ with tabs[4]:
 
     except Exception as e:
         st.warning(f"返信検知ログを表示できません: {e}")
+
