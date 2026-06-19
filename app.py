@@ -797,6 +797,26 @@ button[kind="secondary"] {
 """, unsafe_allow_html=True)
 
 
+# ==============================
+# Google OAuth Callback 自動処理
+# ==============================
+def handle_google_oauth_callback():
+    import streamlit as st
+    from gmail_oauth_web import exchange_code_for_token
+
+    try:
+        params = st.query_params
+        code = params.get("code")
+
+        if code:
+            exchange_code_for_token(code, user_id=1, company_id=1)
+            st.query_params.clear()
+            st.success("Gmail接続が完了しました。")
+    except Exception as e:
+        st.error(f"Gmail接続処理エラー: {e}")
+
+handle_google_oauth_callback()
+
 st.set_page_config(page_title="Profit Radar", layout="wide", initial_sidebar_state="expanded")
 # sidebar force visible patch
 st.markdown("""
