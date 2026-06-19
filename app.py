@@ -1131,7 +1131,6 @@ def render_gmail_oauth_settings():
     import streamlit as st
     from gmail_oauth_web import (
         get_authorization_url,
-        exchange_code_for_token,
         load_credentials,
         init_gmail_connections_table,
     )
@@ -1141,33 +1140,19 @@ def render_gmail_oauth_settings():
     init_gmail_connections_table()
     creds = load_credentials(user_id=1, company_id=1)
 
-    if creds:
+    if creds and creds.valid:
         st.success("Gmail接続済み")
+        st.caption("Gmail解析・返信送信が利用できます。")
     else:
         st.warning("Gmail未接続")
+        st.caption("Googleアカウントを接続すると、Gmail解析と返信送信が使えます。")
 
-    try:
-        auth_url, state = get_authorization_url()
-        st.link_button("Googleアカウントを接続", auth_url)
-    except Exception as e:
-        st.error(f"OAuth設定エラー: {e}")
-        st.info("Render環境変数 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI を確認してください。")
-
-    st.divider()
-
-    st.caption("Google認証後、URLに表示された code= の値を貼り付けて接続します。")
-    code = st.text_input("認証コード", key="gmail_oauth_code")
-
-    if st.button("Gmail接続を保存"):
-        if not code.strip():
-            st.error("認証コードを入力してください。")
-        else:
-            try:
-                exchange_code_for_token(code.strip(), user_id=1, company_id=1)
-                st.success("Gmail接続を保存しました。画面を再読み込みしてください。")
-            except Exception as e:
-                st.error(f"Gmail接続保存エラー: {e}")
-
+        try:
+            auth_url, state = get_authorization_url()
+            st.link_button("Googleアカウントを接続", auth_url)
+        except Exception as e:
+            st.error(f"OAuth設定エラー: {e}")
+            st.info("Render環境変数 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI を確認してください。")
 
 tabs = st.tabs([
     "🏠 今日の利益",
