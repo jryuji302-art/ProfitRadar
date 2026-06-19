@@ -1008,6 +1008,28 @@ only_hot = st.sidebar.checkbox("Hot Leadのみ", value=False)
 
 df_view = df.copy()
 
+# Render空DB・旧DB対策：不足カラムを補完
+default_columns = {
+    "opportunity_score": 0,
+    "recoverable_profit": 0,
+    "revenue_score": 0,
+    "estimated_profit": 0,
+    "status": "",
+    "risk_level": "",
+    "pipeline_stage": "",
+    "category": "",
+    "customer": "",
+    "subject": "",
+    "content": "",
+    "memo": "",
+    "reason": "",
+    "next_action": "",
+}
+for col, default in default_columns.items():
+    if col not in df_view.columns:
+        df_view[col] = default
+
+
 if search_text:
     search_cols = ["customer", "subject", "content", "category", "pipeline_stage", "reason", "next_action", "memo"]
     mask = False
