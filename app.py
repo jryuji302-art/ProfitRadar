@@ -989,11 +989,8 @@ if pd.isna(max_score_value):
     max_score_value = 0
 
 max_score = int(max_score_value)
+
 if max_score <= 0:
-    min_score = 0
-    st.sidebar.caption("Revenue Score: データなし")
-else:
-    if max_score <= 0:
     min_score = 0
     st.sidebar.caption("Revenue Score: データなし")
 else:
