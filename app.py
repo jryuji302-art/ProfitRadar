@@ -989,7 +989,11 @@ if pd.isna(max_score_value):
     max_score_value = 0
 
 max_score = int(max_score_value)
-min_score = st.sidebar.slider("Revenue Score", 0, max_score, 0)
+if max_score <= 0:
+    min_score = 0
+    st.sidebar.caption("Revenue Score: データなし")
+else:
+    min_score = st.sidebar.slider("Revenue Score", 0, max_score, 0)
 
 max_profit_value = df["estimated_profit"].fillna(0).max() if "estimated_profit" in df.columns else 0
 max_profit = int(max_profit_value) if not pd.isna(max_profit_value) else 0
