@@ -1140,7 +1140,7 @@ def render_gmail_oauth_settings():
     init_gmail_connections_table()
     creds = load_credentials(user_id=1, company_id=1)
 
-    if creds and creds.valid:
+    if creds and (creds.valid or creds.refresh_token):
         st.success("Gmail接続済み")
         st.caption("Gmail解析・返信送信が利用できます。")
     else:
