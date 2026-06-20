@@ -195,38 +195,6 @@ def get_ai_advice_logs(limit=50):
         return []
 
 def init_db():
-
-# Render旧DB対策：profit_leads不足カラム補修
-def repair_profit_leads_schema():
-    import sqlite3
-    conn = sqlite3.connect(DB)
-    c = conn.cursor()
-
-    c.execute("PRAGMA table_info(profit_leads)")
-    existing = {row[1] for row in c.fetchall()}
-
-    required = {
-        "category": "TEXT",
-        "opportunity_score": "INTEGER DEFAULT 0",
-        "hot_lead": "INTEGER DEFAULT 0",
-        "recoverable_profit": "INTEGER DEFAULT 0",
-        "pipeline_stage": "TEXT",
-        "memo": "TEXT",
-        "actual_profit": "INTEGER DEFAULT 0",
-        "sales_temperature": "TEXT",
-        "user_id": "INTEGER DEFAULT 1",
-        "company_id": "INTEGER DEFAULT 1",
-    }
-
-    for col, col_type in required.items():
-        if col not in existing:
-            c.execute(f"ALTER TABLE profit_leads ADD COLUMN {col} {col_type}")
-
-    conn.commit()
-    conn.close()
-
-repair_profit_leads_schema()
-:
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
@@ -245,7 +213,16 @@ repair_profit_leads_schema()
         created_at TEXT,
         reason TEXT,
         email_date TEXT,
-        memo TEXT
+        memo TEXT,
+        category TEXT,
+        opportunity_score INTEGER DEFAULT 0,
+        hot_lead INTEGER DEFAULT 0,
+        recoverable_profit INTEGER DEFAULT 0,
+        pipeline_stage TEXT,
+        actual_profit INTEGER DEFAULT 0,
+        sales_temperature TEXT,
+        user_id INTEGER DEFAULT 1,
+        company_id INTEGER DEFAULT 1
     )
     """)
 
@@ -259,6 +236,37 @@ repair_profit_leads_schema()
         created_at TEXT
     )
     """)
+
+    conn.commit()
+    conn.close()
+
+
+def repair_profit_leads_schema():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("PRAGMA table_info(profit_leads)")
+    existing = {row[1] for row in c.fetchall()}
+
+    required = {
+        "gmail_id": "TEXT",
+        "reason": "TEXT",
+        "email_date": "TEXT",
+        "memo": "TEXT",
+        "category": "TEXT",
+        "opportunity_score": "INTEGER DEFAULT 0",
+        "hot_lead": "INTEGER DEFAULT 0",
+        "recoverable_profit": "INTEGER DEFAULT 0",
+        "pipeline_stage": "TEXT",
+        "actual_profit": "INTEGER DEFAULT 0",
+        "sales_temperature": "TEXT",
+        "user_id": "INTEGER DEFAULT 1",
+        "company_id": "INTEGER DEFAULT 1",
+    }
+
+    for col, col_type in required.items():
+        if col not in existing:
+            c.execute(f"ALTER TABLE profit_leads ADD COLUMN {col} {col_type}")
 
     conn.commit()
     conn.close()
