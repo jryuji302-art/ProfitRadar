@@ -57,6 +57,7 @@ def create_flow():
         config,
         scopes=SCOPES,
         redirect_uri=redirect_uri,
+        autogenerate_code_verifier=False,
     )
 
 def get_authorization_url():
