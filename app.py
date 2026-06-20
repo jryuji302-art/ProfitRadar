@@ -903,6 +903,39 @@ st.markdown("""
 
 init_db()
 ensure_columns()
+
+# Render旧DB対策：profit_actions不足カラム補修
+def repair_profit_actions_schema():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("PRAGMA table_info(profit_actions)")
+    existing = {row[1] for row in c.fetchall()}
+
+    required = {
+        "gmail_id": "TEXT",
+        "to_email": "TEXT",
+        "subject": "TEXT",
+        "body": "TEXT",
+        "status": "TEXT",
+        "sent_at": "TEXT",
+        "safety_ok": "INTEGER DEFAULT 0",
+        "safety_errors": "TEXT",
+        "safety_warnings": "TEXT",
+        "gmail_result_id": "TEXT",
+        "user_id": "INTEGER DEFAULT 1",
+        "company_id": "INTEGER DEFAULT 1",
+    }
+
+    for col, col_type in required.items():
+        if col not in existing:
+            c.execute(f"ALTER TABLE profit_actions ADD COLUMN {col} {col_type}")
+
+    conn.commit()
+    conn.close()
+
+repair_profit_actions_schema()
+
 inject_css()
 
 
