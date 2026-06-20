@@ -1095,6 +1095,15 @@ for col, default in default_columns.items():
     if col not in df_view.columns:
         df_view[col] = default
 
+# 表示用スコア補正：revenue_scoreが無い/空の場合はopportunity_scoreを代用
+if "revenue_score" not in df_view.columns:
+    df_view["revenue_score"] = df_view.get("opportunity_score", 0)
+
+df_view["revenue_score"] = df_view["revenue_score"].fillna(0)
+
+if "opportunity_score" in df_view.columns:
+    df_view.loc[df_view["revenue_score"] <= 0, "revenue_score"] = df_view["opportunity_score"].fillna(0)
+
 
 if search_text:
     search_cols = ["customer", "subject", "content", "category", "pipeline_stage", "reason", "next_action", "memo"]
