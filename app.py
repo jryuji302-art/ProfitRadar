@@ -194,7 +194,7 @@ def get_ai_advice_logs(limit=50):
     except Exception:
         return []
 
-def init_db()
+def init_db():
 
 # Render旧DB対策：profit_leads不足カラム補修
 def repair_profit_leads_schema():
