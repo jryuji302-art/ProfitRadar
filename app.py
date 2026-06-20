@@ -1921,6 +1921,9 @@ with tabs[4]:
     st.caption("現在表示中の案件一覧をCSVで保存します。")
 
     try:
+        export_df = df_view.copy() if "df_view" in globals() else df.copy()
+        csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
+
         st.download_button(
             "案件一覧をCSV保存",
             csv_data,
