@@ -222,31 +222,6 @@ def get_ai_advice_logs(limit=50):
     except Exception:
         return []
 
-def 
-st.markdown("""
-<style>
-@media (max-width: 768px) {
-    [data-testid="stSidebar"] {
-        min-width: auto !important;
-        width: auto !important;
-    }
-
-    [data-testid="collapsedControl"] {
-        display: block !important;
-        visibility: visible !important;
-    }
-
-    .stTabs [data-baseweb="tab-list"] {
-        overflow-x: auto;
-        white-space: nowrap;
-    }
-
-    .stTabs [data-baseweb="tab"] {
-        min-width: fit-content;
-    }
-}
-</style>
-""", unsafe_allow_html=True)
 
 init_db():
     conn = sqlite3.connect(DB)
