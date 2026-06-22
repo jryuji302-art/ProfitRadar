@@ -929,8 +929,16 @@ def handle_google_oauth_callback():
         code = params.get("code")
 
         if code:
+        from gmail_oauth_web import parse_oauth_state
+        oauth_state = st.query_params.get("state", "")
+        oauth_user_id, oauth_company_id = parse_oauth_state(oauth_state)
+
+        st.session_state["logged_in"] = True
+        st.session_state["user_id"] = oauth_user_id
+        st.session_state["company_id"] = oauth_company_id
+
             st.session_state["oauth_debug_code_received"] = True
-            exchange_code_for_token(code, user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
+            exchange_code_for_token(code, user_id=oauth_user_id, company_id=oauth_company_id)
             st.session_state["oauth_debug_saved"] = True
             st.query_params.clear()
             st.success("Gmail接続が完了しました。")
