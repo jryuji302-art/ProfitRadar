@@ -587,7 +587,251 @@ def money(v):
 
 
 def inject_css():
-    pass
+    st.markdown("""
+<style>
+.block-container {
+    padding-top: 2.4rem;
+    padding-left: 3.6rem;
+    padding-right: 3.6rem;
+    max-width: 1320px;
+}
+
+
+
+
+
+
+
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 22px;
+}
+
+.sidebar-logo {
+    width: 42px;
+    height: 42px;
+    border-radius: 15px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, #10B981, #0EA5E9);
+    font-size: 21px;
+    font-weight: 900;
+}
+
+.sidebar-title {
+    font-size: 21px;
+    font-weight: 950;
+    color: white;
+}
+
+.sidebar-sub {
+    font-size: 12px;
+    color: #8EA4BF;
+    font-weight: 700;
+}
+
+.sidebar-mini-label {
+    color: #7FA0C4;
+    font-size: 12px;
+    font-weight: 950;
+    letter-spacing: 0.08em;
+    margin-top: 18px;
+    margin-bottom: 10px;
+}
+
+.main-title {
+    font-size: 42px;
+    font-weight: 950;
+    color: #0F172A;
+    line-height: 1.15;
+}
+
+.sub-title {
+    color: #64748B;
+    font-size: 17px;
+    margin-top: 8px;
+    margin-bottom: 24px;
+}
+
+.hero-panel {
+    background: linear-gradient(135deg, #FFFFFF 0%, #F8FAFC 55%, #ECFDF5 100%);
+    border: 1px solid #E5E7EB;
+    border-left: 7px solid #10B981;
+    border-radius: 28px;
+    padding: 30px 34px;
+    margin: 18px 0 28px 0;
+    box-shadow: 0 22px 55px rgba(15, 23, 42, 0.08);
+    display: grid;
+    grid-template-columns: 1.25fr 0.75fr;
+    gap: 28px;
+    align-items: center;
+}
+
+.hero-label {
+    color: #64748B;
+    font-size: 15px;
+    font-weight: 900;
+    margin-bottom: 10px;
+}
+
+.hero-value {
+    color: #059669;
+    font-size: 62px;
+    font-weight: 950;
+    letter-spacing: -0.06em;
+    line-height: 1;
+}
+
+.hero-sub {
+    margin-top: 14px;
+    color: #64748B;
+    font-size: 15px;
+    font-weight: 750;
+}
+
+.hero-chart {
+    height: 150px;
+    border-radius: 22px;
+    background:
+        linear-gradient(180deg, rgba(16,185,129,0.16), rgba(16,185,129,0.02)),
+        repeating-linear-gradient(to right, rgba(15,23,42,0.04) 0px, rgba(15,23,42,0.04) 1px, transparent 1px, transparent 42px);
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-dot {
+    position: absolute;
+    right: 28px;
+    top: 30px;
+    width: 14px;
+    height: 14px;
+    background: #10B981;
+    border-radius: 50%;
+    box-shadow: 0 0 0 8px rgba(16,185,129,0.16);
+}
+
+.card {
+    background: linear-gradient(180deg, #FFFFFF 0%, #FBFDFF 100%);
+    border-radius: 22px;
+    padding: 24px;
+    border: 1px solid #E5E7EB;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.06);
+    min-height: 132px;
+}
+
+.card-title {
+    color: #64748B;
+    font-size: 14px;
+    font-weight: 850;
+}
+
+.card-value {
+    font-size: 36px;
+    font-weight: 950;
+    color: #059669;
+    margin-top: 10px;
+    letter-spacing: -0.04em;
+}
+
+.card-sub {
+    color: #64748B;
+    font-size: 13px;
+    margin-top: 8px;
+}
+
+.lead-card {
+    display: grid;
+    grid-template-columns: minmax(330px, 2.2fr) 0.8fr 0.45fr 0.55fr 0.55fr;
+    gap: 18px;
+    align-items: center;
+    background: #FFFFFF;
+    padding: 22px 24px;
+    border-radius: 22px;
+    border: 1px solid #E5E7EB;
+    margin-bottom: 14px;
+    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.055);
+}
+
+.lead-title {
+    font-size: 18px;
+    font-weight: 900;
+    color: #111827;
+}
+
+.lead-sub {
+    font-size: 13px;
+    color: #64748B;
+    margin-top: 6px;
+    line-height: 1.45;
+}
+
+.ai-summary {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #2563EB;
+    font-weight: 800;
+}
+
+.lead-money {
+    font-size: 24px;
+    font-weight: 950;
+    color: #059669;
+    text-align: right;
+}
+
+.risk-high, .risk-mid, .risk-low {
+    padding: 8px 12px;
+    border-radius: 999px;
+    text-align: center;
+    font-weight: 900;
+    font-size: 13px;
+}
+
+.risk-high { background: #FEE2E2; color: #DC2626; }
+.risk-mid { background: #FEF3C7; color: #D97706; }
+.risk-low { background: #DCFCE7; color: #059669; }
+
+.lead-days, .lead-score {
+    font-size: 13px;
+    color: #475569;
+    font-weight: 850;
+    text-align: center;
+}
+
+.notice {
+    background: linear-gradient(90deg, #EFF6FF, #ECFDF5);
+    border: 1px solid #BFDBFE;
+    color: #1E40AF;
+    padding: 16px 18px;
+    border-radius: 18px;
+    font-weight: 800;
+}
+
+.stTabs [data-baseweb="tab-list"] {
+    gap: 10px;
+    border-bottom: 1px solid #E5E7EB;
+}
+
+.stTabs [data-baseweb="tab"] {
+    height: 44px;
+    padding: 0 14px;
+    border-radius: 12px 12px 0 0;
+    color: #64748B;
+    font-weight: 850;
+}
+
+.stTabs [aria-selected="true"] {
+    color: #059669 !important;
+    background: #ECFDF5;
+}
+
+#MainMenu {visibility: visible;}
+footer {visibility: visible;}
+header {visibility: visible;}
+</style>
+""", unsafe_allow_html=True)
 
 
 def metric_card(title, value, sub):
