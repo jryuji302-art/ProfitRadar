@@ -920,7 +920,7 @@ button[kind="secondary"] {
 # ==============================
 def handle_google_oauth_callback():
     import streamlit as st
-    from gmail_oauth_web import exchange_code_for_token
+    from gmail_oauth_web import exchange_code_for_token, parse_oauth_state
 
     try:
         params = st.query_params
@@ -929,25 +929,27 @@ def handle_google_oauth_callback():
         code = params.get("code")
 
         if code:
-        from gmail_oauth_web import parse_oauth_state
-        oauth_state = st.query_params.get("state", "")
-        oauth_user_id, oauth_company_id = parse_oauth_state(oauth_state)
+            oauth_state = params.get("state", "")
+            oauth_user_id, oauth_company_id = parse_oauth_state(oauth_state)
 
-        st.session_state["logged_in"] = True
-        st.session_state["user_id"] = oauth_user_id
-        st.session_state["company_id"] = oauth_company_id
+            st.session_state["logged_in"] = True
+            st.session_state["user_id"] = oauth_user_id
+            st.session_state["company_id"] = oauth_company_id
 
             st.session_state["oauth_debug_code_received"] = True
             exchange_code_for_token(code, user_id=oauth_user_id, company_id=oauth_company_id)
             st.session_state["oauth_debug_saved"] = True
+
             st.query_params.clear()
             st.success("Gmail接続が完了しました。")
         else:
             st.session_state["oauth_debug_code_received"] = False
+
     except Exception as e:
         st.error(f"Gmail接続処理エラー: {e}")
 
 handle_google_oauth_callback()
+
 
 st.set_page_config(page_title="Profit Radar", layout="wide", initial_sidebar_state="expanded")
 # sidebar force visible patch
