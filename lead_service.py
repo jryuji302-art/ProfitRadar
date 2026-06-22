@@ -20,7 +20,9 @@ def estimate_neglected_days(email_date):
     except Exception:
         return 7
 
-def save_email_as_lead(email):
+def save_email_as_lead(email, user_id=None, company_id=None):
+    if user_id is None or company_id is None:
+        raise ValueError("user_id / company_id がないため利益候補を保存できません。")
     subject = email.get("subject", "")
     body = email.get("body", "")
     sender = email.get("sender", "")
@@ -37,7 +39,7 @@ def save_email_as_lead(email):
 
     gmail_id = email.get("gmail_id", "")
 
-    c.execute("SELECT COUNT(*) FROM profit_leads WHERE gmail_id = ?", (gmail_id,))
+    c.execute("SELECT COUNT(*) FROM profit_leads WHERE gmail_id = ? AND user_id = ? AND company_id = ?", (gmail_id, user_id, company_id))
     if c.fetchone()[0] > 0:
         conn.close()
         return False
@@ -58,8 +60,9 @@ def save_email_as_lead(email):
     INSERT INTO profit_leads
     (gmail_id, customer, subject, content, estimated_profit, risk_level,
      neglected_days, next_action, status, created_at, reason, email_date, memo,
-     category, opportunity_score, hot_lead, recoverable_profit, pipeline_stage)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     category, opportunity_score, hot_lead, recoverable_profit, pipeline_stage,
+     user_id, company_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         gmail_id,
         customer,
@@ -78,7 +81,9 @@ def save_email_as_lead(email):
         opportunity_score,
         hot_lead,
         recoverable_profit,
-        pipeline_stage
+        pipeline_stage,
+        user_id,
+        company_id
     ))
 
     conn.commit()

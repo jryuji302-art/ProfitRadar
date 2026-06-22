@@ -26,7 +26,7 @@ def init_reply_detection_db():
     conn.close()
 
 
-def get_sent_gmail_replies(limit=30):
+def get_sent_gmail_replies(limit=30, user_id=1, company_id=1):
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -35,36 +35,38 @@ def get_sent_gmail_replies(limit=30):
         FROM profit_actions
         WHERE action_type='gmail_reply'
           AND status='sent'
+          AND user_id=?
+          AND company_id=?
         ORDER BY id DESC
         LIMIT ?
-    """, (limit,))
+    """, (user_id, company_id, limit))
     rows = [dict(r) for r in c.fetchall()]
     conn.close()
     return rows
 
 
-def already_detected(action_id, gmail_id):
+def already_detected(action_id, gmail_id, user_id=1, company_id=1):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("""
         SELECT id
         FROM reply_detection_logs
-        WHERE action_id=? AND gmail_id=?
+        WHERE action_id=? AND gmail_id=? AND user_id=? AND company_id=?
         LIMIT 1
-    """, (action_id, gmail_id))
+    """, (action_id, gmail_id, user_id, company_id))
     row = c.fetchone()
     conn.close()
     return row is not None
 
 
-def save_detection(lead_id, action_id, gmail_id, thread_id, from_email, subject):
+def save_detection(lead_id, action_id, gmail_id, thread_id, from_email, subject, user_id=1, company_id=1):
     init_reply_detection_db()
     conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("""
         INSERT INTO reply_detection_logs
-        (lead_id, action_id, gmail_id, thread_id, from_email, subject, detected_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (lead_id, action_id, gmail_id, thread_id, from_email, subject, detected_at, user_id, company_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         lead_id,
         action_id,
@@ -72,51 +74,55 @@ def save_detection(lead_id, action_id, gmail_id, thread_id, from_email, subject)
         thread_id,
         from_email,
         subject,
-        datetime.now().isoformat()
+        datetime.now().isoformat(),
+        user_id,
+        company_id
     ))
     conn.commit()
     conn.close()
 
 
-def update_lead_after_reply(lead_id):
+def update_lead_after_reply(lead_id, user_id=1, company_id=1):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("""
         UPDATE profit_leads
         SET status='返信あり',
             pipeline_stage='返信あり'
-        WHERE id=?
-    """, (lead_id,))
+        WHERE id=? AND user_id=? AND company_id=?
+    """, (lead_id, user_id, company_id))
     conn.commit()
     conn.close()
 
 
-def save_action_log(lead_id, message):
+def save_action_log(lead_id, message, user_id=1, company_id=1):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("""
         INSERT INTO profit_actions
-        (lead_id, action_type, message, result, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        (lead_id, action_type, message, result, created_at, user_id, company_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
     """, (
         lead_id,
         "reply_detected",
         message,
         "done",
-        datetime.now().isoformat()
+        datetime.now().isoformat(),
+        user_id,
+        company_id
     ))
     conn.commit()
     conn.close()
 
 
-def detect_replies(limit=30):
+def detect_replies(limit=30, user_id=1, company_id=1):
     """
     送信済みgmail_replyのthreadを確認し、
     自分以外からの新しい返信を検知する。
     """
     init_reply_detection_db()
-    service = get_gmail_service()
-    sent_actions = get_sent_gmail_replies(limit=limit)
+    service = get_gmail_service(user_id=user_id, company_id=company_id)
+    sent_actions = get_sent_gmail_replies(limit=limit, user_id=user_id, company_id=company_id)
 
     detected = []
 
@@ -131,7 +137,7 @@ def detect_replies(limit=30):
             continue
 
         try:
-            meta = get_original_email_meta(original_gmail_id)
+            meta = get_original_email_meta(original_gmail_id, user_id=user_id, company_id=company_id)
             thread_id = meta.get("thread_id")
             if not thread_id:
                 continue
@@ -166,7 +172,7 @@ def detect_replies(limit=30):
                 if from_email != to_email:
                     continue
 
-                if already_detected(action_id, msg_id):
+                if already_detected(action_id, msg_id, user_id=user_id, company_id=company_id):
                     continue
 
                 save_detection(
@@ -175,13 +181,17 @@ def detect_replies(limit=30):
                     gmail_id=msg_id,
                     thread_id=thread_id,
                     from_email=from_email,
-                    subject=subject
+                    subject=subject,
+                    user_id=user_id,
+                    company_id=company_id
                 )
 
-                update_lead_after_reply(lead_id)
+                update_lead_after_reply(lead_id, user_id=user_id, company_id=company_id)
                 save_action_log(
                     lead_id,
-                    f"返信検知: {from_email} / {subject}"
+                    f"返信検知: {from_email} / {subject}",
+                    user_id=user_id,
+                    company_id=company_id
                 )
 
                 detected.append({

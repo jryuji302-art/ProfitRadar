@@ -1,10 +1,12 @@
 import html
 import re
 import sqlite3
+import hashlib
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 
 import pandas as pd
+import altair as alt
 from revenue_engine import analyze_email, generate_follow_message as generate_revenue_follow_message
 import streamlit as st
 
@@ -117,14 +119,27 @@ def get_customer_revenue_summary(customer):
             "max_neglected_days": 0,
         }
 
-def update_actual_revenue(lead_id, actual_revenue):
+def update_actual_revenue(lead_id, actual_revenue, user_id=None, company_id=None):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
+
+    if user_id is None or company_id is None:
+        conn.close()
+        raise ValueError("user_id / company_id がないため実回収利益の更新を停止しました。")
+
     c.execute("""
         UPDATE profit_leads
         SET actual_revenue=?
-        WHERE id=?
-    """, (int(actual_revenue or 0), int(lead_id)))
+        WHERE id=? AND user_id=? AND company_id=?
+    """, (int(actual_revenue or 0), int(lead_id), int(user_id), int(company_id)))
+
+    if int(actual_revenue or 0) > 0:
+        c.execute("""
+            UPDATE profit_leads
+            SET status='成約'
+            WHERE id=? AND user_id=? AND company_id=?
+        """, (int(lead_id), int(user_id), int(company_id)))
+
     conn.commit()
     conn.close()
 
@@ -294,9 +309,18 @@ def ensure_columns():
     conn.close()
 
 
-def get_leads():
+def get_leads(user_id=None, company_id=None):
     conn = sqlite3.connect(DB)
-    df = pd.read_sql_query("SELECT * FROM profit_leads", conn)
+
+    if user_id is not None and company_id is not None:
+        df = pd.read_sql_query(
+            "SELECT * FROM profit_leads WHERE user_id = ? AND company_id = ?",
+            conn,
+            params=(int(user_id), int(company_id))
+        )
+    else:
+        df = pd.read_sql_query("SELECT * FROM profit_leads WHERE 1=0", conn)
+
     conn.close()
 
     if not df.empty:
@@ -307,50 +331,104 @@ def get_leads():
     return df
 
 
-def get_actions():
+def get_actions(user_id=None, company_id=None):
     conn = sqlite3.connect(DB)
-    df = pd.read_sql_query(
-        "SELECT * FROM profit_actions ORDER BY created_at DESC",
-        conn
-    )
+
+    if user_id is not None and company_id is not None:
+        df = pd.read_sql_query(
+            """
+            SELECT a.*
+            FROM profit_actions a
+            LEFT JOIN profit_leads l ON l.id = a.lead_id
+            WHERE l.user_id = ? AND l.company_id = ?
+            ORDER BY a.created_at DESC
+            """,
+            conn,
+            params=(int(user_id), int(company_id))
+        )
+    else:
+        df = pd.read_sql_query("SELECT * FROM profit_actions WHERE 1=0", conn)
+
     conn.close()
     return df
 
 
-def reset_database():
+def reset_database(user_id=None, company_id=None):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("DELETE FROM profit_leads")
-    c.execute("DELETE FROM profit_actions")
+
+    if user_id is not None and company_id is not None:
+        c.execute("""
+            DELETE FROM profit_actions
+            WHERE lead_id IN (
+                SELECT id FROM profit_leads WHERE user_id = ? AND company_id = ?
+            )
+        """, (int(user_id), int(company_id)))
+        c.execute(
+            "DELETE FROM profit_leads WHERE user_id = ? AND company_id = ?",
+            (int(user_id), int(company_id))
+        )
+    else:
+        raise ValueError("user_id / company_id がないためリセットを停止しました。")
+
     conn.commit()
     conn.close()
 
 
-def update_lead_status(lead_id, status):
+def update_lead_status(lead_id, status, user_id=None, company_id=None):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("UPDATE profit_leads SET status = ? WHERE id = ?", (status, lead_id))
+
+    if user_id is not None and company_id is not None:
+        c.execute(
+            "UPDATE profit_leads SET status = ? WHERE id = ? AND user_id = ? AND company_id = ?",
+            (status, int(lead_id), int(user_id), int(company_id))
+        )
+    else:
+        raise ValueError("user_id / company_id がないためステータス更新を停止しました。")
+
     conn.commit()
     conn.close()
 
 
-def update_lead_memo(lead_id, memo):
+def update_lead_memo(lead_id, memo, user_id=None, company_id=None):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
-    c.execute("UPDATE profit_leads SET memo = ? WHERE id = ?", (memo, lead_id))
+
+    if user_id is not None and company_id is not None:
+        c.execute(
+            "UPDATE profit_leads SET memo = ? WHERE id = ? AND user_id = ? AND company_id = ?",
+            (memo, int(lead_id), int(user_id), int(company_id))
+        )
+    else:
+        raise ValueError("user_id / company_id がないためメモ更新を停止しました。")
+
     conn.commit()
     conn.close()
 
 
-def save_action_log(lead_id, action_type, message, result):
+def save_action_log(lead_id, action_type, message, result, user_id=None, company_id=None):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
+
+    if user_id is not None and company_id is not None:
+        c.execute(
+            "SELECT id FROM profit_leads WHERE id = ? AND user_id = ? AND company_id = ?",
+            (int(lead_id), int(user_id), int(company_id))
+        )
+        if not c.fetchone():
+            conn.close()
+            raise ValueError("この案件は現在のユーザー/会社に紐づいていません。")
+    else:
+        conn.close()
+        raise ValueError("user_id / company_id がないため操作ログ保存を停止しました。")
+
     c.execute("""
     INSERT INTO profit_actions
     (lead_id, action_type, message, result, created_at)
     VALUES (?, ?, ?, ?, ?)
     """, (
-        lead_id,
+        int(lead_id),
         action_type,
         message,
         result,
@@ -852,7 +930,7 @@ def handle_google_oauth_callback():
 
         if code:
             st.session_state["oauth_debug_code_received"] = True
-            exchange_code_for_token(code, user_id=1, company_id=1)
+            exchange_code_for_token(code, user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
             st.session_state["oauth_debug_saved"] = True
             st.query_params.clear()
             st.success("Gmail接続が完了しました。")
@@ -901,8 +979,191 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+
+def ensure_auth_tables():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT UNIQUE,
+            name TEXT,
+            password_hash TEXT,
+            created_at TEXT
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS companies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            company_name TEXT,
+            plan TEXT DEFAULT 'beta',
+            created_at TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+def hash_password(password):
+    return hashlib.sha256(str(password).encode("utf-8")).hexdigest()
+
+
+def create_user_and_company(email, name, password, company_name):
+    email = str(email or "").strip().lower()
+    name = str(name or "").strip()
+    company_name = str(company_name or "").strip()
+
+    if not email or not password or not company_name:
+        raise ValueError("メールアドレス、パスワード、会社名は必須です。")
+
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    c.execute("SELECT id FROM users WHERE email = ?", (email,))
+    if c.fetchone():
+        conn.close()
+        raise ValueError("このメールアドレスは既に登録されています。")
+
+    created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    password_hash = hash_password(password)
+
+    c.execute("""
+        INSERT INTO users (email, name, password_hash, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (email, name, password_hash, created_at))
+
+    user_id = c.lastrowid
+
+    c.execute("""
+        INSERT INTO companies (user_id, company_name, plan, created_at)
+        VALUES (?, ?, ?, ?)
+    """, (user_id, company_name, "beta", created_at))
+
+    company_id = c.lastrowid
+
+    conn.commit()
+    conn.close()
+
+    return user_id, company_id
+
+
+def authenticate_user(email, password):
+    email = str(email or "").strip().lower()
+    password_hash = hash_password(password)
+
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT id, email, name
+        FROM users
+        WHERE email = ? AND password_hash = ?
+    """, (email, password_hash))
+
+    user = c.fetchone()
+
+    if not user:
+        conn.close()
+        return None
+
+    c.execute("""
+        SELECT id, company_name, plan
+        FROM companies
+        WHERE user_id = ?
+        ORDER BY id ASC
+        LIMIT 1
+    """, (user["id"],))
+
+    company = c.fetchone()
+    conn.close()
+
+    if not company:
+        return None
+
+    return {
+        "user_id": int(user["id"]),
+        "email": user["email"],
+        "name": user["name"],
+        "company_id": int(company["id"]),
+        "company_name": company["company_name"],
+        "plan": company["plan"],
+    }
+
+
+def render_auth_gate():
+    if st.session_state.get("logged_in"):
+        return
+
+    st.title("Profit Radar")
+    st.caption("ログインまたは新規登録してください。")
+
+    login_tab, register_tab = st.tabs(["ログイン", "新規登録"])
+
+    with login_tab:
+        login_email = st.text_input("メールアドレス", key="login_email")
+        login_password = st.text_input("パスワード", type="password", key="login_password")
+
+        if st.button("ログイン", key="login_button"):
+            user = authenticate_user(login_email, login_password)
+            if user:
+                st.session_state["logged_in"] = True
+                st.session_state["user_id"] = user["user_id"]
+                st.session_state["company_id"] = user["company_id"]
+                st.session_state["user_email"] = user["email"]
+                st.session_state["user_name"] = user["name"]
+                st.session_state["company_name"] = user["company_name"]
+                st.session_state["plan"] = user["plan"]
+                st.success("ログインしました。")
+                st.rerun()
+            else:
+                st.error("メールアドレスまたはパスワードが違います。")
+
+    with register_tab:
+        reg_name = st.text_input("名前", key="register_name")
+        reg_company = st.text_input("会社名・屋号", key="register_company")
+        reg_email = st.text_input("メールアドレス", key="register_email")
+        reg_password = st.text_input("パスワード", type="password", key="register_password")
+
+        if st.button("新規登録", key="register_button"):
+            try:
+                user_id, company_id = create_user_and_company(reg_email, reg_name, reg_password, reg_company)
+
+                st.session_state["logged_in"] = True
+                st.session_state["user_id"] = user_id
+                st.session_state["company_id"] = company_id
+                st.session_state["user_email"] = reg_email.strip().lower()
+                st.session_state["user_name"] = reg_name.strip()
+                st.session_state["company_name"] = reg_company.strip()
+                st.session_state["plan"] = "beta"
+
+                st.success("登録しました。")
+                st.rerun()
+            except Exception as e:
+                st.error(f"登録エラー: {e}")
+
+    st.stop()
+
+
+def render_logout_sidebar():
+    st.sidebar.caption(f"ログイン中: {st.session_state.get('user_email', '')}")
+    st.sidebar.caption(f"会社: {st.session_state.get('company_name', '')}")
+
+    if st.sidebar.button("ログアウト"):
+        for key in ["logged_in", "user_id", "company_id", "user_email", "user_name", "company_name", "plan"]:
+            st.session_state.pop(key, None)
+        st.rerun()
+
+
 init_db()
 ensure_columns()
+ensure_auth_tables()
+render_auth_gate()
+render_logout_sidebar()
 
 # Render旧DB対策：profit_actions不足カラム補修
 def repair_profit_actions_schema():
@@ -1073,7 +1334,7 @@ selected_category = st.sidebar.selectbox("分類", category_options)
 
 # データ取得：サイドバー整理時のdf未定義対策
 try:
-    df = get_leads()
+    df = get_leads(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
 except Exception as e:
     st.error(f"案件データ取得エラー: {e}")
     df = pd.DataFrame()
@@ -1226,7 +1487,7 @@ def render_gmail_oauth_settings():
     st.subheader("Gmail接続")
 
     init_gmail_connections_table()
-    creds = load_credentials(user_id=1, company_id=1)
+    creds = load_credentials(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
 
     if creds and (creds.valid or creds.refresh_token):
         st.success("Gmail接続済み")
@@ -1236,19 +1497,26 @@ def render_gmail_oauth_settings():
         st.caption("Googleアカウントを接続すると、Gmail解析と返信送信が使えます。")
 
         try:
-            auth_url, state = get_authorization_url()
+            auth_url, state = get_authorization_url(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
             st.link_button("Googleアカウントを接続", auth_url)
         except Exception as e:
             st.error(f"OAuth設定エラー: {e}")
             st.info("Render環境変数 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI を確認してください。")
 
-tabs = st.tabs([
+dev_mode = str(st.query_params.get("dev", "0")) == "1"
+
+tab_names = [
     "🏠 今日の利益",
     "🔥 今すぐ返信",
     "👥 顧客",
-    "📈 分析",
-    "⚙️ 設定"
-])
+    "📈 実績",
+    "⚙️ Gmail接続",
+]
+
+if dev_mode:
+    tab_names.append("🛠 開発者")
+
+tabs = st.tabs(tab_names)
 
 hot_df = df_view[
     (df_view["status"] == "未対応") &
@@ -1280,6 +1548,278 @@ with tabs[0]:
         st.markdown("### 優先案件")
         for _, row in dashboard_df.head(8).iterrows():
             lead_card(row)
+
+
+with tabs[1]:
+    st.subheader("🔥 今すぐ返信")
+    st.caption("未対応案件から、回収可能利益・放置日数・スコアが高い順に返信対象を表示します。")
+
+    if df_view.empty:
+        st.info("表示できる案件がありません。")
+    else:
+        reply_df = df_view.copy()
+
+        for col in [
+            "id", "gmail_id", "customer", "subject", "content", "category",
+            "status", "recoverable_profit", "estimated_profit",
+            "neglected_days", "opportunity_score", "revenue_score", "next_action"
+        ]:
+            if col not in reply_df.columns:
+                reply_df[col] = ""
+
+        for num_col in ["recoverable_profit", "estimated_profit", "neglected_days", "opportunity_score", "revenue_score"]:
+            reply_df[num_col] = pd.to_numeric(reply_df[num_col], errors="coerce").fillna(0)
+
+        score_col = "opportunity_score" if "opportunity_score" in reply_df.columns else "revenue_score"
+
+        reply_df = reply_df[reply_df["status"] == "未対応"].copy()
+        reply_df = reply_df.sort_values(
+            ["recoverable_profit", "neglected_days", score_col],
+            ascending=False
+        )
+
+        if reply_df.empty:
+            st.success("現在、今すぐ返信が必要な未対応案件はありません。")
+        else:
+            lead_options = []
+            lead_map = {}
+
+            for _, r in reply_df.head(20).iterrows():
+                lead_id_v = int(r.get("id", 0) or 0)
+                label = (
+                    f"#{lead_id_v}｜{r.get('customer', '不明顧客')}｜"
+                    f"{r.get('subject', '件名なし')}｜"
+                    f"回収可能 {money(r.get('recoverable_profit', 0))}｜"
+                    f"{int(r.get('neglected_days', 0) or 0)}日放置"
+                )
+                lead_options.append(label)
+                lead_map[label] = lead_id_v
+
+            selected_label = st.selectbox("返信する案件を選択", lead_options, key="hot_reply_select")
+            lead_id = lead_map[selected_label]
+            lead = reply_df[reply_df["id"] == lead_id].iloc[0]
+
+            st.divider()
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("回収可能利益", money(lead.get("recoverable_profit", 0)))
+            c2.metric("推定利益", money(lead.get("estimated_profit", 0)))
+            c3.metric("放置日数", f"{int(lead.get('neglected_days', 0) or 0)}日")
+            c4.metric("スコア", int(lead.get(score_col, 0) or 0))
+
+            st.markdown(f"### {lead.get('customer', '不明顧客')}")
+            st.write("件名：", lead.get("subject", "件名なし"))
+            st.write("分類：", lead.get("category", "未分類"))
+
+            with st.expander("メール本文を見る"):
+                st.text_area(
+                    "メール本文",
+                    str(lead.get("content", "") or ""),
+                    height=220,
+                    key=f"hot_body_{lead_id}"
+                )
+
+            st.divider()
+            st.markdown("### 🤖 AI案件参謀")
+            st.caption("この案件をどう扱うべきか、AIが判断します。")
+
+            try:
+                ai_advice = build_ai_advice(lead)
+                formatted_ai_advice = format_ai_advice(ai_advice)
+
+                if isinstance(formatted_ai_advice, str):
+                    st.markdown(formatted_ai_advice)
+                else:
+                    st.write(formatted_ai_advice)
+
+            except Exception as e:
+                st.warning(f"AI案件参謀を表示できませんでした: {e}")
+
+                fallback_decision = str(lead.get("next_action", "") or "フォロー確認")
+                fallback_risk = str(lead.get("risk_level", "") or "中")
+                fallback_score = int(lead.get(score_col, 0) or 0)
+
+                a1, a2, a3 = st.columns(3)
+                a1.metric("判断", fallback_decision[:20])
+                a2.metric("リスク", fallback_risk)
+                a3.metric("優先度", fallback_score)
+
+                st.info("AI詳細判断が取得できないため、保存済みの案件情報から簡易判断を表示しています。")
+
+            st.divider()
+            st.markdown("### 実利益を記録")
+            st.caption("実際に回収できた金額を入力すると、案件は自動で成約扱いになります。")
+
+            actual_revenue_input = st.number_input(
+                "実回収利益",
+                min_value=0,
+                step=1000,
+                value=int(lead.get("actual_revenue", 0) or 0),
+                key=f"hot_actual_revenue_{lead_id}"
+            )
+
+            if st.button("実利益を保存", key=f"hot_save_actual_revenue_{lead_id}"):
+                update_actual_revenue(
+                    lead_id,
+                    actual_revenue_input,
+                    user_id=st.session_state.get("user_id"),
+                    company_id=st.session_state.get("company_id")
+                )
+                save_ai_learning(
+                    lead_id=int(lead_id),
+                    customer=str(lead.get("customer", "")),
+                    subject=str(lead.get("subject", "")),
+                    ai_decision=str(lead.get("next_action", "")),
+                    result="成約" if int(actual_revenue_input or 0) > 0 else "実利益更新",
+                    actual_revenue=int(actual_revenue_input or 0),
+                    note="今すぐ返信タブから実利益を保存"
+                )
+                st.success("実利益を保存しました。")
+                st.rerun()
+
+            st.divider()
+            st.markdown("### フォロー文")
+
+            safe_subject = str(lead.get("subject", "") or "").strip()
+            if len(safe_subject) < 3:
+                safe_subject = "ご確認のお願い"
+
+            try:
+                history_text = build_followup_history(lead)
+            except Exception:
+                history_text = ""
+
+            try:
+                default_follow = generate_follow_message(
+                    lead.get("customer", ""),
+                    safe_subject,
+                    lead.get("content", ""),
+                    category=lead.get("category", ""),
+                    history=history_text
+                )
+            except Exception:
+                default_follow = str(lead.get("next_action", "") or "")
+                if len(default_follow) < 10:
+                    default_follow = f"""{lead.get('customer', '')} 様
+
+お世話になっております。
+
+下記の件について、進行状況を確認させてください。
+
+件名：{safe_subject}
+
+ご確認いただき、進められそうであれば次の流れをご相談できればと思います。
+よろしくお願いいたします。"""
+
+            follow_body = st.text_area(
+                "編集して保存・送信できます",
+                default_follow,
+                height=240,
+                key=f"hot_follow_{lead_id}"
+            )
+
+            customer_raw = str(lead.get("customer", "") or "")
+            email_match = re.search(r"<([^>]+)>", customer_raw)
+            default_to_email = email_match.group(1).strip() if email_match else ""
+
+            to_email = st.text_input(
+                "送信先メールアドレス",
+                default_to_email,
+                key=f"hot_to_{lead_id}"
+            )
+
+            col_save, col_send, col_hold, col_done = st.columns(4)
+
+            with col_save:
+                if st.button("フォロー文を保存", key=f"hot_save_follow_{lead_id}"):
+                    try:
+                        save_action(
+                            lead_id=int(lead_id),
+                            gmail_id=str(lead.get("gmail_id", "")),
+                            action_type="follow_text_saved",
+                            to_email=to_email,
+                            subject=safe_subject,
+                            body=follow_body,
+                            status="saved"
+                        )
+                        st.success("フォロー文を保存しました。")
+                    except Exception as e:
+                        save_action_log(int(lead_id), "follow_text_saved", follow_body, "saved")
+                        st.warning(f"簡易保存しました: {e}")
+
+            with col_send:
+                if st.button("Gmail送信", key=f"hot_send_follow_{lead_id}"):
+                    try:
+                        if not to_email:
+                            st.error("送信先メールアドレスを入力してください。")
+                            raise RuntimeError("送信先メールアドレス未入力")
+
+                        send_errors = validate_send_body(follow_body)
+                        if send_errors:
+                            st.error("送信停止：本文に問題があります。")
+                            for err in send_errors:
+                                st.warning(err)
+                            raise RuntimeError("送信前安全チェックで停止しました。")
+
+                        result = send_gmail_reply(
+                            gmail_id=str(lead.get("gmail_id", "")),
+                            to_email=to_email,
+                            subject=safe_subject,
+                            body=follow_body,
+                            lead_id=int(lead_id),
+                            action_type="gmail_reply",
+                            force_send=False
+                        )
+
+                        gmail_result_id = result.get("id", "")
+
+                        save_action(
+                            lead_id=int(lead_id),
+                            gmail_id=str(lead.get("gmail_id", "")),
+                            action_type="gmail_reply",
+                            to_email=to_email,
+                            subject=safe_subject,
+                            body=follow_body,
+                            status="sent",
+                            safety_ok=1,
+                            gmail_result_id=gmail_result_id
+                        )
+
+                        update_lead_status(int(lead_id), "対応済み", user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
+                        st.success(f"Gmail送信完了: {gmail_result_id}")
+                        st.rerun()
+
+                    except Exception as e:
+                        try:
+                            save_action(
+                                lead_id=int(lead_id),
+                                gmail_id=str(lead.get("gmail_id", "")),
+                                action_type="gmail_reply_failed",
+                                to_email=to_email,
+                                subject=safe_subject,
+                                body=follow_body,
+                                status="failed",
+                                safety_ok=0,
+                                safety_errors=str(e)
+                            )
+                        except Exception:
+                            pass
+                        st.error(f"Gmail送信エラー: {e}")
+
+            with col_hold:
+                if st.button("保留", key=f"hot_hold_{lead_id}"):
+                    update_lead_status(int(lead_id), "保留", user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
+                    save_action_log(int(lead_id), "status_update", "保留に変更", "pending")
+                    st.warning("保留にしました。")
+                    st.rerun()
+
+            with col_done:
+                if st.button("対応済み", key=f"hot_done_{lead_id}"):
+                    update_lead_status(int(lead_id), "対応済み", user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
+                    save_action_log(int(lead_id), "status_update", "対応済みに変更", "done")
+                    st.success("対応済みにしました。")
+                    st.rerun()
+
 
 with tabs[2]:
     st.subheader("👥 顧客")
@@ -1364,7 +1904,7 @@ with tabs[2]:
 
         st.markdown("#### この顧客の保存・送信履歴")
 
-        actions_df = get_actions()
+        actions_df = get_actions(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
         if not actions_df.empty and "lead_id" in actions_df.columns:
             customer_lead_ids = customer_leads["id"].tolist()
             customer_actions = actions_df[actions_df["lead_id"].isin(customer_lead_ids)]
@@ -1406,481 +1946,203 @@ if False:
 
     with col1:
         if st.button("対応済みにする"):
-            update_lead_status(int(lead_id), "対応済み")
+            update_lead_status(int(lead_id), "対応済み", user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
             save_action_log(int(lead_id), "status_update", "対応済みに変更", "done")
             st.success("対応済みにしました。")
 
     with col2:
         if st.button("保留にする"):
-            update_lead_status(int(lead_id), "保留")
+            update_lead_status(int(lead_id), "保留", user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
             save_action_log(int(lead_id), "status_update", "保留に変更", "pending")
             st.warning("保留にしました。")
 
     with col3:
         if st.button("未対応に戻す"):
-            update_lead_status(int(lead_id), "未対応")
+            update_lead_status(int(lead_id), "未対応", user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
             save_action_log(int(lead_id), "status_update", "未対応に変更", "open")
             st.info("未対応に戻しました。")
 
 with tabs[3]:
-    st.subheader("📈 分析")
-
-    st.markdown("### 利益グラフ")
+    st.subheader("📈 実績")
+    st.caption("今日・今月・累計の利益と、利益を生んだ顧客を確認します。")
 
     chart_df = get_revenue_chart_data()
 
     if chart_df.empty:
-        st.info("グラフ表示できるデータがありません。")
+        st.info("実績データがまだありません。Gmail解析・実回収利益の保存後に表示されます。")
     else:
-        chart_df["actual_revenue"] = pd.to_numeric(chart_df["actual_revenue"], errors="coerce").fillna(0)
-        chart_df["estimated_profit"] = pd.to_numeric(chart_df["estimated_profit"], errors="coerce").fillna(0)
-        chart_df["recoverable_profit"] = pd.to_numeric(chart_df["recoverable_profit"], errors="coerce").fillna(0)
+        chart_df["actual_revenue"] = pd.to_numeric(chart_df.get("actual_revenue", 0), errors="coerce").fillna(0)
+        chart_df["estimated_profit"] = pd.to_numeric(chart_df.get("estimated_profit", 0), errors="coerce").fillna(0)
+        chart_df["recoverable_profit"] = pd.to_numeric(chart_df.get("recoverable_profit", 0), errors="coerce").fillna(0)
 
-        st.markdown("#### 顧客別 実回収利益")
-        customer_chart = chart_df.groupby("customer", as_index=False)["actual_revenue"].sum()
-        customer_chart = customer_chart.sort_values("actual_revenue", ascending=False).head(20)
-        st.bar_chart(customer_chart, x="customer", y="actual_revenue")
+        for col in ["customer", "subject", "pipeline_stage", "sales_temperature", "created_at"]:
+            if col not in chart_df.columns:
+                chart_df[col] = ""
 
-        st.markdown("#### 分類別 実回収利益")
-        category_chart = chart_df.groupby("category", as_index=False)["actual_revenue"].sum()
-        category_chart = category_chart.sort_values("actual_revenue", ascending=False)
-        st.bar_chart(category_chart, x="category", y="actual_revenue")
+        chart_df["customer"] = chart_df["customer"].fillna("不明顧客").astype(str).replace("", "不明顧客")
+        chart_df["subject"] = chart_df["subject"].fillna("件名なし").astype(str).replace("", "件名なし")
+        chart_df["pipeline_stage"] = chart_df["pipeline_stage"].fillna("未分類").astype(str).replace("", "未分類")
+        chart_df["sales_temperature"] = chart_df["sales_temperature"].fillna("未分類").astype(str).replace("", "未分類")
 
-        st.markdown("#### ステージ別 案件数")
-        stage_chart = chart_df.groupby("pipeline_stage", as_index=False).size()
-        st.bar_chart(stage_chart, x="pipeline_stage", y="size")
+        chart_df["created_at_dt"] = pd.to_datetime(chart_df["created_at"], errors="coerce")
+        today = pd.Timestamp.now().date()
+        this_month = pd.Timestamp.now().month
+        this_year = pd.Timestamp.now().year
 
-        if "sales_temperature" in chart_df.columns:
-            st.markdown("#### 営業温度別 案件数")
-            temp_chart = chart_df.groupby("sales_temperature", as_index=False).size()
-            st.bar_chart(temp_chart, x="sales_temperature", y="size")
+        revenue_df = chart_df[chart_df["actual_revenue"] > 0].copy()
 
-        total_actual = int(chart_df["actual_revenue"].sum())
-        total_estimated = int(chart_df["estimated_profit"].sum())
+        today_revenue = int(chart_df[chart_df["created_at_dt"].dt.date == today]["actual_revenue"].sum())
+        month_revenue = int(chart_df[
+            (chart_df["created_at_dt"].dt.year == this_year) &
+            (chart_df["created_at_dt"].dt.month == this_month)
+        ]["actual_revenue"].sum())
+        total_revenue = int(chart_df["actual_revenue"].sum())
+
+        closed_count = int((chart_df["actual_revenue"] > 0).sum())
+        avg_revenue = int(revenue_df["actual_revenue"].mean()) if not revenue_df.empty else 0
         total_recoverable = int(chart_df["recoverable_profit"].sum())
 
-        g1, g2, g3 = st.columns(3)
-        g1.metric("累計実回収利益", money(total_actual))
-        g2.metric("累計推定利益", money(total_estimated))
-        g3.metric("累計回収可能利益", money(total_recoverable))
+        st.markdown("### 今日の利益")
 
+        k1, k2, k3 = st.columns(3)
+        k1.metric("今日", money(today_revenue))
+        k2.metric("今月", money(month_revenue))
+        k3.metric("累計", money(total_revenue))
 
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("### 推定利益ランキング")
-        st.bar_chart(df_view.set_index("customer")["estimated_profit"])
-
-    with col2:
-        st.markdown("### 危険度別件数")
-        st.bar_chart(df_view["risk_level"].value_counts())
-
-with tabs[1]:
-    st.subheader("🔥 今すぐ返信")
-    st.caption("今すぐ対応すべき案件を選び、AI分析・返信生成・送信・営業温度更新まで行います。")
-
-    if df_view.empty:
-        st.info("表示できる案件がありません。")
-    else:
-        priority_sort_col = "opportunity_score" if "opportunity_score" in df_view.columns else "revenue_score"
-        dashboard_df = df_view.sort_values(priority_sort_col, ascending=False).copy()
+        k4, k5, k6 = st.columns(3)
+        k4.metric("成約件数", f"{closed_count}件")
+        k5.metric("平均回収単価", money(avg_revenue))
+        k6.metric("未回収見込み", money(total_recoverable))
 
         st.divider()
-        st.markdown("### 案件詳細")
 
-        option_labels = {}
-        for _, row in dashboard_df.iterrows():
-            label = f"ID {int(row.get('id', 0))}｜{row.get('customer', '')}｜{row.get('subject', '')}"
-            option_labels[label] = int(row.get("id", 0))
+        st.markdown("### 利益を生んだTOP顧客")
 
-        selected_label = st.selectbox(
-            "詳細を見る案件",
-            list(option_labels.keys()),
-            key="reply_lead_detail_select"
+        top_customers = (
+            revenue_df.groupby("customer", as_index=False)["actual_revenue"]
+            .sum()
+            .sort_values("actual_revenue", ascending=False)
+            .head(3)
         )
 
-        lead_id = option_labels[selected_label]
-        lead = dashboard_df[dashboard_df["id"] == lead_id].iloc[0]
-
-        safe_subject = str(lead.get("subject", "") or "").strip()
-        if len(safe_subject) < 3:
-            safe_subject = "案件のご確認"
-
-        col_a, col_b = st.columns([2, 1])
-
-        with col_a:
-            st.markdown("#### 基本情報")
-            st.write("顧客：", lead.get("customer", ""))
-            st.write("件名：", safe_subject)
-            st.write("分類：", lead.get("category", ""))
-            st.write("ステージ：", lead.get("pipeline_stage", ""))
-            st.write("受信日：", lead.get("email_date", ""))
-
-            if pd.notna(lead.get("gmail_id", "")):
-                gmail_url = f"https://mail.google.com/mail/u/0/#inbox/{lead.get('gmail_id', '')}"
-                st.link_button("Gmailで元メールを開く", gmail_url)
-
-            st.markdown("#### メール本文")
-            st.text_area(
-                "本文",
-                str(lead.get("content", "") or ""),
-                height=300,
-                key=f"reply_content_{lead_id}"
-            )
-
-        with col_b:
-            st.markdown("#### AI分析")
-
-            try:
-                try:
-                    st.text(build_openai_advice(lead))
-                except Exception as openai_error:
-                    st.caption(f"OpenAI未使用: {openai_error}")
-                    advice = build_ai_advice(lead)
-                    st.text(format_ai_advice(advice))
-            except Exception as e:
-                st.warning(f"AI分析を生成できませんでした: {e}")
-            st.metric("推定利益", money(lead.get("estimated_profit", 0)))
-            st.metric("回収可能利益", money(lead.get("recoverable_profit", 0)))
-        st.metric("実回収利益", money(lead.get("actual_revenue", 0)))
-
-        actual_revenue_input = st.number_input(
-            "実際に回収した金額",
-            min_value=0,
-            value=int(lead.get("actual_revenue", 0) or 0),
-            step=1000,
-            key=f"actual_revenue_{lead_id}"
-        )
-
-        if st.button("実回収利益を保存", key=f"save_actual_revenue_{lead_id}"):
-            update_actual_revenue(lead_id, actual_revenue_input)
-            save_action_log(int(lead_id), "actual_revenue_updated", f"実回収利益: {actual_revenue_input}", "done")
-            st.success("実回収利益を保存しました。")
-            # AI学習UIは app_dev.py に分離済み
-
-            st.metric("Revenue Score", int(lead.get("revenue_score", 0) or 0))
-            st.metric("Opportunity Score", int(lead.get("opportunity_score", 0) or 0))
-            st.write("危険度：", lead.get("risk_level", ""))
-            st.write("放置日数：", f"{int(lead.get('neglected_days', 0) or 0)}日")
-            st.write("次の行動：", lead.get("next_action", ""))
-            st.info(str(lead.get("reason", "") or "判定理由なし"))
-
-        st.divider()
-        st.markdown("### メモ / フォロー")
-
-        memo = lead.get("memo", "") if pd.notna(lead.get("memo", "")) else ""
-        memo_text = st.text_area(
-            "案件メモ",
-            str(memo),
-            height=120,
-            key=f"reply_memo_{lead_id}"
-        )
-
-        if st.button("メモを保存", key=f"reply_save_memo_{lead_id}"):
-            update_lead_memo(int(lead_id), memo_text)
-            st.success("メモを保存しました。")
-
-        history_text = build_followup_history(lead)
-
-        default_follow = generate_follow_message(
-            lead.get("customer", ""),
-            safe_subject,
-            lead.get("content", ""),
-            category=lead.get("category", ""),
-            history=history_text
-        )
-
-        follow_body = st.text_area(
-            "フォロー文",
-            default_follow,
-            height=240,
-            key=f"reply_follow_{lead_id}"
-        )
-
-        customer_raw = str(lead.get("customer", "") or "")
-        email_match = re.search(r"<([^>]+)>", customer_raw)
-        default_to_email = email_match.group(1).strip() if email_match else customer_raw.strip()
-
-        to_email = st.text_input(
-            "送信先メールアドレス",
-            default_to_email,
-            key=f"reply_to_{lead_id}"
-        )
-
-        col_save, col_send, col_status = st.columns(3)
-
-        with col_save:
-            if st.button("フォロー文を保存", key=f"reply_save_follow_{lead_id}"):
-                save_action(
-                    lead_id=int(lead_id),
-                    gmail_id=str(lead.get("gmail_id", "")),
-                    action_type="follow_text_saved",
-                    to_email=to_email,
-                    subject=safe_subject,
-                    body=follow_body,
-                    status="saved"
-                )
-                st.success("フォロー文を保存しました。")
-
-        with col_send:
-            if st.button("Gmail送信", key=f"reply_send_follow_{lead_id}"):
-                try:
-                    send_errors = validate_send_body(follow_body)
-                    if send_errors:
-                        st.error("送信停止：本文に問題があります。")
-                        for err in send_errors:
-                            st.warning(err)
-                        raise RuntimeError("送信前安全チェックで停止しました。")
-
-                    result = send_gmail_reply(
-                        gmail_id=str(lead.get("gmail_id", "")),
-                        to_email=to_email,
-                        subject=safe_subject,
-                        body=follow_body,
-                        lead_id=int(lead_id),
-                        action_type="gmail_reply",
-                        force_send=False
-                    )
-                    gmail_result_id = result.get("id", "")
-
-                    save_action(
-                        lead_id=int(lead_id),
-                        gmail_id=str(lead.get("gmail_id", "")),
-                        action_type="gmail_reply",
-                        to_email=to_email,
-                        subject=safe_subject,
-                        body=follow_body,
-                        status="sent",
-                        safety_ok=1,
-                        gmail_result_id=gmail_result_id
-                    )
-
-                    update_lead_status(int(lead_id), "対応済み")
-                    st.success(f"Gmail送信完了: {gmail_result_id}")
-
-                except Exception as e:
-                    save_action(
-                        lead_id=int(lead_id),
-                        gmail_id=str(lead.get("gmail_id", "")),
-                        action_type="gmail_reply_failed",
-                        to_email=to_email,
-                        subject=safe_subject,
-                        body=follow_body,
-                        status="failed",
-                        safety_ok=0,
-                        safety_errors=str(e)
-                    )
-                    st.error(f"Gmail送信エラー: {e}")
-
-        with col_status:
-            temp_options = ["未判定", "決裁済み", "発注予定", "稟議中", "検討中", "保留", "失注"]
-            current_temp = str(lead.get("sales_temperature", "未判定") or "未判定")
-            if current_temp not in temp_options:
-                current_temp = "未判定"
-
-            new_temp = st.selectbox(
-                "営業温度",
-                temp_options,
-                index=temp_options.index(current_temp),
-                key=f"reply_sales_temp_{lead_id}"
-            )
-
-            if st.button("営業温度を保存", key=f"reply_save_sales_temp_{lead_id}"):
-                conn = sqlite3.connect(DB)
-                c = conn.cursor()
-                c.execute("UPDATE profit_leads SET sales_temperature=? WHERE id=?", (new_temp, int(lead_id)))
-                conn.commit()
-                conn.close()
-                save_action_log(int(lead_id), "sales_temperature_update", f"営業温度: {new_temp}", "done")
-                st.success("営業温度を保存しました。")
-
-            new_status = st.selectbox(
-                "ステータス変更",
-                ["未対応", "対応済み", "保留", "返信あり"],
-                index=["未対応", "対応済み", "保留"].index(str(lead.get("status", "未対応"))) if str(lead.get("status", "未対応")) in ["未対応", "対応済み", "保留"] else 0,
-                key=f"reply_status_{lead_id}"
-            )
-            if st.button("ステータス保存", key=f"reply_save_status_{lead_id}"):
-                update_lead_status(int(lead_id), new_status)
-                save_action_log(int(lead_id), "status_update", f"{new_status}に変更", "done")
-                st.success("ステータスを保存しました。")
-
-if False:
-    st.subheader("回収案件")
-    if df_view.empty:
-        st.info("表示できる案件がありません。")
-    else:
-        for _, row in df_view.iterrows():
-            lead_card(row)
-
-if False:
-    st.subheader("メール詳細")
-
-    lead_id = st.selectbox("確認する案件", df_view["id"].tolist(), key="mail_detail")
-    lead = df_view[df_view["id"] == lead_id].iloc[0]
-
-    col_a, col_b = st.columns([2, 1])
-
-    with col_a:
-        st.markdown("### 基本情報")
-        st.write(f"顧客：{lead['customer']}")
-        st.write(f"件名：{lead['subject']}")
-        st.write(f"受信日：{lead.get('email_date', '')}")
-
-        if pd.notna(lead.get("gmail_id", "")):
-            gmail_url = f"https://mail.google.com/mail/u/0/#inbox/{lead['gmail_id']}"
-            st.link_button("Gmailで元メールを開く", gmail_url)
-
-        st.markdown("### メール本文")
-        st.text_area("本文", lead["content"], height=360)
-
-    with col_b:
-        st.markdown("### AI分析")
-
-        use_openai = st.checkbox(
-            "OpenAI案件参謀を使う",
-            value=True,
-            key=f"use_openai_detail_{lead_id}"
-        )
-
-        if use_openai:
-            if st.button("AI分析を実行", key=f"run_openai_advice_{lead_id}"):
-                with st.spinner("AIが案件を分析しています..."):
-                    try:
-                        st.text(build_openai_advice(lead))
-                    except Exception as openai_error:
-                        st.caption(f"OpenAI未使用: {openai_error}")
-                        try:
-                            advice = build_ai_advice(lead)
-                            st.text(format_ai_advice(advice))
-                        except Exception as e:
-                            st.warning(f"AI分析を生成できませんでした: {e}")
-            else:
-                st.info("AI分析を実行ボタンを押すと、OpenAI案件参謀がこの案件を分析します。")
+        if top_customers.empty:
+            st.info("実回収利益がある顧客はまだありません。")
         else:
-            try:
-                advice = build_ai_advice(lead)
-                st.text(format_ai_advice(advice))
-            except Exception as e:
-                st.warning(f"AI分析を生成できませんでした: {e}")
-        st.metric("推定利益", money(lead["estimated_profit"]))
-        st.metric("回収可能利益", money(lead.get("recoverable_profit", 0)))
-        st.metric("Revenue Score", int(lead["revenue_score"]))
-        st.metric("Opportunity Score", int(lead.get("opportunity_score", 0)))
-        if int(lead.get("hot_lead", 0) or 0) == 1:
-            st.warning("HOT LEAD：優先対応候補")
-        st.write(f"危険度：{lead['risk_level']}")
-        st.write(f"放置日数：{int(lead['neglected_days'])}日")
-        st.write(f"次の行動：{lead['next_action']}")
-        st.info(lead["reason"] if pd.notna(lead["reason"]) else "判定理由なし")
-
-        st.markdown("### メモ")
-        memo = lead["memo"] if "memo" in lead and pd.notna(lead["memo"]) else ""
-        memo_text = st.text_area("案件メモ", memo, height=140)
-
-        if st.button("メモを保存"):
-            update_lead_memo(int(lead_id), memo_text)
-            st.success("保存しました。再読み込みしてください。")
+            top_cols = st.columns(3)
+            for idx, row in top_customers.reset_index(drop=True).iterrows():
+                customer_name = str(row["customer"])
+                amount = int(row["actual_revenue"])
+                with top_cols[idx]:
+                    st.metric(f"{idx + 1}位", money(amount))
+                    st.caption(customer_name)
 
         st.divider()
-        st.markdown("### フォロー文")
 
-        safe_subject = str(lead.get("subject", "") or "").strip()
-        if len(safe_subject) < 3:
-            safe_subject = "契約のご確認"
+        st.markdown("### 顧客別 実回収利益ランキング")
 
-        history_text = build_followup_history(lead)
-
-        default_follow = generate_follow_message(
-            lead["customer"],
-            safe_subject,
-            lead["content"],
-            category=lead.get("category", ""),
-            history=history_text
+        customer_rank = (
+            revenue_df.groupby("customer", as_index=False)["actual_revenue"]
+            .sum()
+            .sort_values("actual_revenue", ascending=False)
+            .head(8)
         )
 
-        follow_body = st.text_area(
-            "編集して保存・送信できます",
-            default_follow,
-            height=240,
-            key=f"detail_follow_{lead_id}"
+        if customer_rank.empty:
+            st.info("実回収利益がある顧客はまだありません。")
+        else:
+            max_value = int(customer_rank["actual_revenue"].max()) or 1
+
+            for i, row in customer_rank.reset_index(drop=True).iterrows():
+                customer = str(row["customer"])
+                value = int(row["actual_revenue"])
+                rate = min(value / max_value, 1.0)
+
+                left, right = st.columns([3, 1])
+                left.markdown(f"**{i + 1}. {customer}**")
+                left.progress(rate)
+                right.metric("実利益", money(value))
+
+        st.divider()
+
+        st.markdown("### 最近の成約")
+
+        if revenue_df.empty:
+            st.info("最近の成約はまだありません。")
+        else:
+            recent_df = revenue_df.copy()
+            recent_df = recent_df.sort_values("created_at_dt", ascending=False).head(5)
+            recent_df["実回収利益"] = recent_df["actual_revenue"].apply(lambda x: money(int(x)))
+            recent_df["日付"] = recent_df["created_at_dt"].dt.strftime("%Y/%m/%d").fillna("-")
+
+            recent_show = recent_df[["日付", "customer", "subject", "実回収利益"]].rename(columns={
+                "customer": "顧客",
+                "subject": "案件",
+            })
+
+            st.dataframe(recent_show, use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        st.markdown("### 案件状態")
+
+        stage_chart = (
+            chart_df.groupby("pipeline_stage", as_index=False)
+            .size()
+            .rename(columns={"pipeline_stage": "案件状態", "size": "件数"})
+            .sort_values("件数", ascending=False)
         )
 
-        customer_raw = str(lead.get("customer", "") or "")
-        email_match = re.search(r"<([^>]+)>", customer_raw)
-        default_to_email = email_match.group(1).strip() if email_match else customer_raw.strip()
+        if stage_chart.empty:
+            st.info("案件状態データがありません。")
+        else:
+            max_stage = int(stage_chart["件数"].max()) or 1
+            for _, row in stage_chart.iterrows():
+                label = str(row["案件状態"])
+                count = int(row["件数"])
+                st.markdown(f"**{label}：{count}件**")
+                st.progress(min(count / max_stage, 1.0))
 
-        to_email = st.text_input(
-            "送信先メールアドレス",
-            default_to_email,
-            key=f"detail_to_{lead_id}"
+        st.divider()
+
+        st.markdown("### 営業温度")
+
+        temp_chart = (
+            chart_df.groupby("sales_temperature", as_index=False)
+            .size()
+            .rename(columns={"sales_temperature": "営業温度", "size": "件数"})
+            .sort_values("件数", ascending=False)
         )
 
-        col_save, col_send = st.columns(2)
+        if temp_chart.empty:
+            st.info("営業温度データがありません。")
+        else:
+            max_temp = int(temp_chart["件数"].max()) or 1
+            for _, row in temp_chart.iterrows():
+                label = str(row["営業温度"])
+                count = int(row["件数"])
+                st.markdown(f"**{label}：{count}件**")
+                st.progress(min(count / max_temp, 1.0))
 
-        with col_save:
-            if st.button("フォロー文を保存", key=f"save_follow_{lead_id}"):
-                save_action(
-                    lead_id=int(lead_id),
-                    gmail_id=str(lead.get("gmail_id", "")),
-                    action_type="follow_text_saved",
-                    to_email=to_email,
-                    subject=safe_subject,
-                    body=follow_body,
-                    status="saved"
-                )
-                st.success("フォロー文を保存しました。")
+        st.divider()
 
-        with col_send:
-            if st.button("Gmail送信", key=f"send_follow_{lead_id}"):
-                try:
-                    send_errors = validate_send_body(follow_body)
-                    if send_errors:
-                        st.error("送信停止：本文に問題があります。")
-                        for err in send_errors:
-                            st.warning(err)
-                        raise RuntimeError("送信前安全チェックで停止しました。")
+        st.markdown("### 実回収利益 一覧")
 
-                    result = send_gmail_reply(
-                        gmail_id=str(lead.get("gmail_id", "")),
-                        to_email=to_email,
-                        subject=safe_subject,
-                        body=follow_body,
-                        lead_id=int(lead_id),
-                        action_type="gmail_reply",
-                        force_send=False
-                    )
+        if revenue_df.empty:
+            st.info("実回収済みの案件はまだありません。")
+        else:
+            list_df = revenue_df.copy()
+            list_df["実回収利益"] = list_df["actual_revenue"].apply(lambda x: money(int(x)))
+            list_df["推定利益"] = list_df["estimated_profit"].apply(lambda x: money(int(x)))
+            list_df["作成日"] = list_df["created_at_dt"].dt.strftime("%Y/%m/%d").fillna("-")
 
-                    gmail_result_id = result.get("id", "")
+            list_df = list_df[["作成日", "customer", "subject", "pipeline_stage", "sales_temperature", "実回収利益", "推定利益"]].rename(columns={
+                "customer": "顧客",
+                "subject": "案件",
+                "pipeline_stage": "案件状態",
+                "sales_temperature": "営業温度",
+            })
 
-                    save_action(
-                        lead_id=int(lead_id),
-                        gmail_id=str(lead.get("gmail_id", "")),
-                        action_type="gmail_reply",
-                        to_email=to_email,
-                        subject=safe_subject,
-                        body=follow_body,
-                        status="sent",
-                        safety_ok=1,
-                        gmail_result_id=gmail_result_id
-                    )
-
-                    update_lead_status(int(lead_id), "対応済み")
-                    st.success(f"Gmail送信完了: {gmail_result_id}")
-
-                except Exception as e:
-                    save_action(
-                        lead_id=int(lead_id),
-                        gmail_id=str(lead.get("gmail_id", "")),
-                        action_type="gmail_reply_failed",
-                        to_email=to_email,
-                        subject=safe_subject,
-                        body=follow_body,
-                        status="failed",
-                        safety_ok=0,
-                        safety_errors=str(e)
-                    )
-                    st.error(f"Gmail送信エラー: {e}")
+            st.dataframe(list_df, use_container_width=True, hide_index=True)
 
 
 with tabs[4]:
@@ -1895,20 +2157,20 @@ with tabs[4]:
 
     if st.button("Gmailを解析する", key="settings_gmail_scan_restored"):
         try:
-            emails = fetch_recent_emails(limit=analysis_limit)
+            emails = fetch_recent_emails(limit=analysis_limit, user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
             count = 0
             for email in emails:
-                if save_email_as_lead(email):
+                if save_email_as_lead(email, user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id")):
                     count += 1
             st.success(f"{count}件の利益候補を検出しました。")
         except Exception as e:
             st.error(f"Gmail解析エラー: {e}")
 
     if st.button("解析データをリセット", key="settings_reset_data_restored"):
-        reset_database()
+        reset_database(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
         st.success("解析データをリセットしました。")
 
-    df = get_leads()
+    df = get_leads(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
 
     if df.empty:
         st.markdown('<div class="main-title">Profit Radar</div>', unsafe_allow_html=True)
@@ -1984,4 +2246,132 @@ with tabs[4]:
 
     except Exception as e:
         st.warning(f"返信検知ログを表示できません: {e}")
+
+
+if dev_mode:
+    with tabs[-1]:
+        st.subheader("🛠 開発者")
+        st.caption("管理者・開発者向けの確認機能です。通常利用者には見せない画面です。")
+
+        st.markdown("### 👤 利用者情報管理")
+        st.caption("現在ログイン中のユーザー・会社・Gmail接続・利用状況を確認します。")
+
+        login_status = "ログイン中" if st.session_state.get("logged_in") else "未ログイン"
+        current_user_id = st.session_state.get("user_id")
+        current_company_id = st.session_state.get("company_id")
+
+        user_email = st.session_state.get("user_email", "-")
+        user_name = st.session_state.get("user_name", "-")
+        company_name = st.session_state.get("company_name", "-")
+        plan = st.session_state.get("plan", "-")
+
+        gmail_status = "未接続"
+        gmail_updated_at = "-"
+        lead_count = 0
+        total_actual_revenue = 0
+
+        try:
+            conn = sqlite3.connect(DB)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            try:
+                c.execute("""
+                    SELECT updated_at
+                    FROM gmail_connections
+                    WHERE user_id = ? AND company_id = ?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (current_user_id, current_company_id))
+                gmail_row = c.fetchone()
+                if gmail_row:
+                    gmail_status = "接続済み"
+                    gmail_updated_at = gmail_row["updated_at"]
+            except Exception:
+                pass
+
+            try:
+                c.execute("""
+                    SELECT
+                        COUNT(*) AS lead_count,
+                        COALESCE(SUM(actual_revenue), 0) AS total_actual_revenue
+                    FROM profit_leads
+                    WHERE user_id = ? AND company_id = ?
+                """, (current_user_id, current_company_id))
+                lead_row = c.fetchone()
+                if lead_row:
+                    lead_count = int(lead_row["lead_count"] or 0)
+                    total_actual_revenue = int(lead_row["total_actual_revenue"] or 0)
+            except Exception:
+                pass
+
+            conn.close()
+
+        except Exception as e:
+            st.error(f"DB確認エラー: {e}")
+
+        st.markdown("#### ログイン情報")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("ログイン状態", login_status)
+        c2.metric("ユーザーID", current_user_id if current_user_id else "-")
+        c3.metric("会社ID", current_company_id if current_company_id else "-")
+
+        st.markdown("#### 利用者・会社情報")
+        info_df = pd.DataFrame([
+            {"項目": "メールアドレス", "内容": user_email},
+            {"項目": "ユーザー名", "内容": user_name},
+            {"項目": "会社名・屋号", "内容": company_name},
+            {"項目": "プラン", "内容": plan},
+        ])
+        st.dataframe(info_df, use_container_width=True, hide_index=True)
+
+        st.markdown("#### Gmail接続状況")
+        g1, g2 = st.columns(2)
+        g1.metric("接続状態", gmail_status)
+        g2.metric("最終更新日時", gmail_updated_at)
+
+        if gmail_status == "接続済み":
+            st.success("Gmailは正常に接続されています。解析・返信送信が利用できます。")
+        else:
+            st.warning("Gmailは未接続です。利用者画面の Gmail接続 から接続してください。")
+
+        st.markdown("#### 利用状況サマリー")
+        s1, s2 = st.columns(2)
+        s1.metric("案件数", f"{lead_count}件")
+        s2.metric("累計実回収利益", money(total_actual_revenue))
+
+        st.info("この情報は現在のセッションとデータベースの状態を表示しています。")
+
+        st.divider()
+
+        st.markdown("### 開発用リセット")
+        st.warning("解析データを削除します。テスト時のみ使用してください。")
+
+        if st.button("解析データをリセット", key="dev_reset_data"):
+            reset_database(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
+            st.success("解析データをリセットしました。")
+
+        st.divider()
+
+        st.markdown("### Gmail返信検知")
+        st.caption("送信済みフォローに対する返信をGmailから検知します。")
+
+        if st.button("Gmail返信をチェック", key="dev_check_replies"):
+            try:
+                from reply_detection_engine import detect_replies
+
+                results = detect_replies(
+                    limit=30,
+                    user_id=st.session_state.get("user_id"),
+                    company_id=st.session_state.get("company_id")
+                )
+
+                if not results:
+                    st.info("新しい返信は検知されませんでした。")
+                else:
+                    st.success(f"{len(results)}件の返信を検知しました。")
+                    st.write(results)
+
+            except Exception as e:
+                st.error(f"返信検知エラー: {e}")
 

@@ -2,8 +2,10 @@ import base64
 from email.utils import parsedate_to_datetime
 from gmail_oauth_web import get_gmail_service_web
 
-def get_gmail_service():
-    return get_gmail_service_web(user_id=1, company_id=1)
+def get_gmail_service(user_id=None, company_id=None):
+    if user_id is None or company_id is None:
+        raise ValueError("user_id / company_id がないためGmailサービスを取得できません。")
+    return get_gmail_service_web(user_id=user_id, company_id=company_id)
 
 def decode_body(payload):
     body = ""
@@ -21,8 +23,18 @@ def decode_body(payload):
 
     return body
 
-def fetch_recent_emails(limit=20):
-    service = get_gmail_service()
+def fetch_recent_emails(limit=20, user_id=None, company_id=None):
+    try:
+        from gmail_oauth_web import load_credentials
+        from googleapiclient.discovery import build
+
+        creds = load_credentials(user_id=user_id, company_id=company_id)
+        if creds:
+            service = build("gmail", "v1", credentials=creds)
+        else:
+            service = get_gmail_service(user_id=user_id, company_id=company_id)
+    except Exception:
+        service = get_gmail_service(user_id=user_id, company_id=company_id)
 
     results = service.users().messages().list(
         userId="me",
