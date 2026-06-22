@@ -123,15 +123,123 @@ def build_ai_advice(lead):
     else:
         action = "短文で状況確認し、次に進める条件を明確にしてください。"
 
+    close_rate = 20
+    if temp == "高":
+        close_rate += 35
+    elif temp == "中":
+        close_rate += 20
+    else:
+        close_rate += 5
+
+    if score >= 80:
+        close_rate += 20
+    elif score >= 60:
+        close_rate += 10
+    elif score < 30:
+        close_rate -= 10
+
+    if days >= 7:
+        close_rate -= 15
+    elif days >= 3:
+        close_rate -= 5
+
+    if risk == "高":
+        close_rate -= 15
+
+    close_rate = max(5, min(90, close_rate))
+
+    expected_profit = int(profit * close_rate / 100) if profit > 0 else 0
+
+    if intent == "質問":
+        reply = """お世話になっております。
+
+ご質問いただきありがとうございます。
+
+ご確認いただいている件について回答いたします。
+詳細を確認のうえ、必要事項があれば改めてご案内いたします。
+
+よろしくお願いいたします。"""
+    elif intent == "見積":
+        reply = """お世話になっております。
+
+ご依頼いただいた件につきまして、お見積内容の確認でご連絡いたしました。
+
+条件や対応範囲についてご不明点がございましたらお知らせください。
+問題なければ、次の手続きに進めさせていただきます。
+
+よろしくお願いいたします。"""
+    elif intent == "契約":
+        reply = """お世話になっております。
+
+ご契約内容について確認のご連絡です。
+
+開始日や条件に問題がなければ、次の手続きを進めさせていただきます。
+ご確認のほどよろしくお願いいたします。"""
+    elif intent == "請求":
+        reply = """お世話になっております。
+
+請求内容について確認のご連絡です。
+
+お手すきの際にご確認いただけますと幸いです。
+行き違いの場合はご容赦ください。
+
+よろしくお願いいたします。"""
+    elif intent == "採用":
+        reply = """お世話になっております。
+
+候補者および日程についてご連絡いたしました。
+
+ご都合の良い日時や稼働条件についてご確認いただけますと幸いです。
+確認でき次第、次の調整に進めさせていただきます。
+
+よろしくお願いいたします。"""
+    elif intent == "日程":
+        reply = """お世話になっております。
+
+日程調整の件でご連絡いたしました。
+
+ご都合の良い日時をいくつかご教示いただけますと幸いです。
+確認後、こちらで調整いたします。
+
+よろしくお願いいたします。"""
+    else:
+        reply = """お世話になっております。
+
+先日ご連絡させていただいた件ですが、現在のご状況はいかがでしょうか。
+
+進行にあたり必要な情報や確認事項がございましたらお知らせください。
+
+よろしくお願いいたします。"""
+
     return {
+        "成約確率": f"{close_rate}%",
+        "利益期待値": expected_profit,
+        "営業温度": temp,
         "判断": decision,
         "理由": " ".join(reasons),
         "リスク": " ".join(risks),
+        "推奨返信文": reply,
+        "次アクション": action,
         "推奨アクション": action,
     }
 
 def format_ai_advice(advice):
-    return f"""判断
+    expected_profit = advice.get("利益期待値", 0)
+    try:
+        expected_profit_text = f"{int(expected_profit):,}円"
+    except Exception:
+        expected_profit_text = str(expected_profit)
+
+    return f"""成約確率
+{advice.get("成約確率", "")}
+
+利益期待値
+{expected_profit_text}
+
+営業温度
+{advice.get("営業温度", "")}
+
+判断
 {advice.get("判断", "")}
 
 理由
@@ -140,8 +248,11 @@ def format_ai_advice(advice):
 リスク
 {advice.get("リスク", "")}
 
-推奨アクション
-{advice.get("推奨アクション", "")}
+推奨返信文
+{advice.get("推奨返信文", "")}
+
+次アクション
+{advice.get("次アクション", advice.get("推奨アクション", ""))}
 """
 
 

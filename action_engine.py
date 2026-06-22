@@ -13,9 +13,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.send",
 ]
 
-def get_gmail_service():
+def get_gmail_service(user_id=1, company_id=1):
     from gmail_oauth_web import get_gmail_service_web
-    return get_gmail_service_web(user_id=1, company_id=1)
+    return get_gmail_service_web(user_id=user_id, company_id=company_id)
 
 def init_action_db():
     conn = sqlite3.connect(DB)
@@ -41,17 +41,20 @@ def init_action_db():
     conn.commit()
     conn.close()
 
-def get_lead(lead_id):
+def get_lead(lead_id, user_id=1, company_id=1):
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
-    c.execute("SELECT * FROM profit_leads WHERE id=?", (lead_id,))
+    c.execute(
+        "SELECT * FROM profit_leads WHERE id=? AND user_id=? AND company_id=?",
+        (lead_id, user_id, company_id)
+    )
     row = c.fetchone()
     conn.close()
     return dict(row) if row else None
 
-def get_original_email_meta(gmail_id):
-    service = get_gmail_service()
+def get_original_email_meta(gmail_id, user_id=1, company_id=1):
+    service = get_gmail_service(user_id=user_id, company_id=company_id)
     msg = service.users().messages().get(
         userId="me",
         id=gmail_id,
@@ -167,7 +170,9 @@ def save_action(
     safety_ok=0,
     safety_errors="",
     safety_warnings="",
-    gmail_result_id=""
+    gmail_result_id="",
+    user_id=1,
+    company_id=1
 ):
     ensure_action_columns()
 
@@ -176,8 +181,8 @@ def save_action(
     c.execute("""
     INSERT INTO profit_actions
     (lead_id, gmail_id, action_type, to_email, subject, body, status, sent_at, created_at,
-     safety_ok, safety_errors, safety_warnings, gmail_result_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     safety_ok, safety_errors, safety_warnings, gmail_result_id, user_id, company_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         lead_id,
         gmail_id,
@@ -191,7 +196,9 @@ def save_action(
         int(safety_ok or 0),
         safety_errors,
         safety_warnings,
-        gmail_result_id
+        gmail_result_id,
+        user_id,
+        company_id
     ))
     conn.commit()
     conn.close()
@@ -203,7 +210,9 @@ def send_gmail_reply(
     body,
     lead_id=None,
     action_type="reply",
-    force_send=False
+    force_send=False,
+    user_id=1,
+    company_id=1
 ):
     from safety_engine import check_message_safety, check_duplicate_send
 
@@ -216,8 +225,8 @@ def send_gmail_reply(
         if not duplicate["ok"]:
             raise ValueError(duplicate["message"])
 
-    service = get_gmail_service()
-    meta = get_original_email_meta(gmail_id)
+    service = get_gmail_service(user_id=user_id, company_id=company_id)
+    meta = get_original_email_meta(gmail_id, user_id=user_id, company_id=company_id)
 
     msg = MIMEText(body, "plain", "utf-8")
     msg["To"] = to_email

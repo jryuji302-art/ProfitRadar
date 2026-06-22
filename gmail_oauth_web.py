@@ -61,14 +61,33 @@ def create_flow():
         autogenerate_code_verifier=False,
     )
 
-def get_authorization_url():
+def get_authorization_url(user_id=1, company_id=1):
     flow = create_flow()
+    state = f"user:{int(user_id)}|company:{int(company_id)}"
     authorization_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
+        state=state,
     )
     return authorization_url, state
+
+
+def parse_oauth_state(state):
+    try:
+        text = str(state or "")
+        user_id = 1
+        company_id = 1
+
+        for part in text.split("|"):
+            if part.startswith("user:"):
+                user_id = int(part.replace("user:", "").strip())
+            elif part.startswith("company:"):
+                company_id = int(part.replace("company:", "").strip())
+
+        return user_id, company_id
+    except Exception:
+        return 1, 1
 
 def save_credentials(creds, user_id=1, company_id=1):
     init_gmail_connections_table()
