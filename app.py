@@ -42,6 +42,7 @@ DB = "profit_radar.db"
 def save_ai_learning(lead_id, customer, subject, ai_decision, result, actual_revenue, note=""):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
+
     c.execute("""
         CREATE TABLE IF NOT EXISTS ai_learning (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,19 +56,22 @@ def save_ai_learning(lead_id, customer, subject, ai_decision, result, actual_rev
             created_at TEXT
         )
     """)
+
     c.execute("""
         INSERT INTO ai_learning
         (lead_id, customer, subject, ai_decision, result, actual_revenue, note, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """, (
-        int(lead_id),
+        int(lead_id or 0),
         str(customer or ""),
         str(subject or ""),
         str(ai_decision or ""),
         str(result or ""),
         int(actual_revenue or 0),
-        str(note or "")
+        str(note or ""),
+        datetime.now().isoformat()
     ))
+
     conn.commit()
     conn.close()
 
