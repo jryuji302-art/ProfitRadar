@@ -1924,7 +1924,23 @@ with tabs[2]:
                 st.write("件名：", lead_row.get("subject", ""))
                 st.write("ステージ：", lead_row.get("pipeline_stage", ""))
                 st.text_area("メール本文", str(lead_row.get("content", "") or ""), height=180, key=f"cust_body_{lead_row.get('id')}")
-                st.text_area("メモ", str(lead_row.get("memo", "") or ""), height=100, key=f"cust_memo_{lead_row.get('id')}")
+                memo_key = f"cust_memo_{lead_row.get('id')}"
+                memo_value = st.text_area(
+                    "メモ",
+                    str(lead_row.get("memo", "") or ""),
+                    height=100,
+                    key=memo_key
+                )
+
+                if st.button("メモを保存", key=f"save_cust_memo_{lead_row.get('id')}"):
+                    update_lead_memo(
+                        int(lead_row.get("id")),
+                        memo_value,
+                        user_id=st.session_state.get("user_id"),
+                        company_id=st.session_state.get("company_id")
+                    )
+                    st.success("メモを保存しました。")
+                    st.rerun()
 
         st.markdown("#### この顧客の保存・送信履歴")
 
