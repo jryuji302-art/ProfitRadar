@@ -123,6 +123,13 @@ def update_actual_revenue(lead_id, actual_revenue, user_id=None, company_id=None
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
+    # Render上の既存SQLiteに actual_revenue 列が無い場合の自動補修
+    try:
+        c.execute("ALTER TABLE profit_leads ADD COLUMN actual_revenue INTEGER DEFAULT 0")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
     if user_id is None or company_id is None:
         conn.close()
         raise ValueError("user_id / company_id がないため実回収利益の更新を停止しました。")
