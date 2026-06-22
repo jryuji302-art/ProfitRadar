@@ -277,6 +277,7 @@ def repair_profit_leads_schema():
         "sales_temperature": "TEXT",
         "user_id": "INTEGER DEFAULT 1",
         "company_id": "INTEGER DEFAULT 1",
+        "actual_revenue": "INTEGER DEFAULT 0",
     }
 
     for col, col_type in required.items():
