@@ -1,6 +1,8 @@
 import os
 import json
 import sqlite3
+from db_adapter import patch_sqlite_for_database_url
+patch_sqlite_for_database_url(sqlite3)
 from datetime import datetime
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow

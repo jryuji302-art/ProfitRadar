@@ -6,3 +6,7 @@ google-auth-oauthlib
 google-auth-httplib2
 openai
 python-dotenv
+
+psycopg2-binary
+
+sqlalchemy

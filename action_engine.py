@@ -1,4 +1,6 @@
 import sqlite3
+from db_adapter import patch_sqlite_for_database_url
+patch_sqlite_for_database_url(sqlite3)
 import base64
 from datetime import datetime
 from email.mime.text import MIMEText
