@@ -223,7 +223,7 @@ def get_ai_advice_logs(limit=50):
         return []
 
 
-init_db():
+def init_db():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
 
