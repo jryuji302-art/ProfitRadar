@@ -587,7 +587,8 @@ def money(v):
 
 
 def inject_css():
-    
+    pass
+
 
 def metric_card(title, value, sub):
     st.markdown(f"""
