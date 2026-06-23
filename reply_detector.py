@@ -6,6 +6,7 @@ from datetime import datetime
 from email.utils import parseaddr
 
 from action_engine import get_gmail_service, get_original_email_meta
+from openai_sales_engine import build_sales_ai, fallback_sales_ai
 
 DB = "profit_radar.db"
 
@@ -190,6 +191,71 @@ def update_lead_after_reply(lead_id, user_id=1, company_id=1):
     conn.close()
 
 
+
+def get_lead_for_ai(lead_id, user_id=1, company_id=1):
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute("""
+        SELECT id, customer, subject, content, memo,
+               estimated_profit, recoverable_profit, actual_revenue
+        FROM profit_leads
+        WHERE id=? AND user_id=? AND company_id=?
+        LIMIT 1
+    """, (lead_id, user_id, company_id))
+    row = c.fetchone()
+    conn.close()
+    return dict(row) if row else {}
+
+
+def save_ai_reevaluation(lead_id, ai_text, user_id=1, company_id=1):
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO profit_actions
+        (lead_id, action_type, message, result, created_at, user_id, company_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (
+        lead_id,
+        "ai_reply_reevaluation",
+        ai_text,
+        "done",
+        datetime.now().isoformat(),
+        user_id,
+        company_id
+    ))
+    conn.commit()
+    conn.close()
+
+
+def run_ai_reevaluation_after_reply(lead_id, reply_body, user_id=1, company_id=1):
+    lead = get_lead_for_ai(lead_id, user_id=user_id, company_id=company_id)
+    if not lead:
+        return ""
+
+    try:
+        ai_text = build_sales_ai(
+            customer=lead.get("customer", ""),
+            subject=lead.get("subject", ""),
+            lead_content=lead.get("content", ""),
+            reply_body=reply_body,
+            memo=lead.get("memo", ""),
+            estimated_profit=lead.get("estimated_profit", 0),
+            recoverable_profit=lead.get("recoverable_profit", 0),
+            actual_revenue=lead.get("actual_revenue", 0),
+            mode="reply"
+        )
+    except Exception:
+        ai_text = fallback_sales_ai(
+            reply_body=reply_body,
+            estimated_profit=lead.get("estimated_profit", 0),
+            recoverable_profit=lead.get("recoverable_profit", 0)
+        )
+
+    save_ai_reevaluation(lead_id, ai_text, user_id=user_id, company_id=company_id)
+    return ai_text
+
+
 def save_action_log(lead_id, message, user_id=1, company_id=1):
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -328,6 +394,14 @@ def force_detect_latest_replies(limit=30, user_id=1, company_id=1):
                 save_action_log(
                     lead_id,
                     f"返信検知: {from_email} / {subject}",
+                    user_id=user_id,
+                    company_id=company_id
+                )
+
+                # 返信内容をAI案件参謀で再評価し、履歴に保存する
+                run_ai_reevaluation_after_reply(
+                    lead_id=lead_id,
+                    reply_body=reply_body,
                     user_id=user_id,
                     company_id=company_id
                 )
