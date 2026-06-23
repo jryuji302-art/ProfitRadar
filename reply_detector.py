@@ -242,6 +242,7 @@ def force_detect_latest_replies(limit=30, user_id=1, company_id=1):
 
     results = []
     seen_gmail_ids = set()
+    processed_threads = set()
 
     for action in sent_actions:
         try:
@@ -257,6 +258,11 @@ def force_detect_latest_replies(limit=30, user_id=1, company_id=1):
             thread_id = meta.get("thread_id")
             if not thread_id:
                 continue
+
+            # 同一スレッドは1回だけ処理する
+            if thread_id in processed_threads:
+                continue
+            processed_threads.add(thread_id)
 
             thread = service.users().threads().get(
                 userId="me",
@@ -305,8 +311,8 @@ def force_detect_latest_replies(limit=30, user_id=1, company_id=1):
                 continue
             seen_gmail_ids.add(msg_id)
 
-            if not already_detected(action_id, msg_id, user_id=user_id, company_id=company_id):
-                save_detection(
+            # gmail_id単位で重複防止。action_idが違っても同じ返信は保存しない。
+            if save_detection(
                     lead_id=lead_id,
                     action_id=action_id,
                     gmail_id=msg_id,
@@ -317,8 +323,7 @@ def force_detect_latest_replies(limit=30, user_id=1, company_id=1):
                     reply_date=reply_date,
                     user_id=user_id,
                     company_id=company_id
-                )
-
+                ):
                 update_lead_after_reply(lead_id, user_id=user_id, company_id=company_id)
                 save_action_log(
                     lead_id,
