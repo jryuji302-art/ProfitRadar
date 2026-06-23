@@ -19,7 +19,6 @@ from ai_advisor_engine import build_ai_dashboard_advice, format_ai_dashboard_adv
 from openai_sales_engine import build_sales_ai, fallback_sales_ai
 from openai_advisor_engine import build_openai_advice
 from openai_followup_engine import generate_followup as generate_openai_followup
-import dashboard
 
 DB = "profit_radar.db"
 
@@ -1794,7 +1793,18 @@ priority_sort_col = "opportunity_score" if "opportunity_score" in df_view.column
 priority_df = df_view[df_view["status"] == "未対応"].sort_values(priority_sort_col, ascending=False).head(5)
 
 with tabs[0]:
-    dashboard.render(df_view=df_view, money=money, lead_card=lead_card)
+    st.subheader("🏠 今日の利益")
+    st.caption("今日見るべき利益状況と優先案件を確認します。詳細対応は「🔥 要対応」で行います。")
+
+    if df_view.empty:
+        st.info("表示できる案件がありません。")
+    else:
+        priority_sort_col = "opportunity_score" if "opportunity_score" in df_view.columns else "revenue_score"
+        dashboard_df = df_view.sort_values(priority_sort_col, ascending=False).copy()
+
+        st.markdown("### 優先案件")
+        for _, row in dashboard_df.head(8).iterrows():
+            lead_card(row)
 
 
 
