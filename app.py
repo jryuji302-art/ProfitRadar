@@ -2352,118 +2352,105 @@ with tabs[3]:
                 """, unsafe_allow_html=True)
 
 with tabs[4]:
-    st.subheader("⚙️ 設定")
+    st.subheader("⚙️ Gmail接続")
+    st.caption("Gmailの接続、メール解析、返信チェックを行います。")
+
     render_gmail_oauth_settings()
-    # AI分析履歴 は app_dev.py に分離済み
 
-    st.markdown("### Gmail解析")
-    st.caption("Gmailから利益候補を検出します。")
+    st.divider()
 
-    analysis_limit = st.selectbox("Gmail解析件数", [5, 10, 20, 30, 50], index=2, key="settings_analysis_limit_restored")
+    st.markdown("### メール解析")
+    st.caption("Gmailから利益候補を探します。")
 
-    if st.button("Gmailを解析する", key="settings_gmail_scan_restored"):
+    analysis_limit = st.slider("確認するメール数", 10, 100, 30)
+
+    if st.button("Gmailを解析する"):
         try:
-            emails = fetch_recent_emails(limit=analysis_limit, user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
+            emails = fetch_recent_emails(
+                limit=analysis_limit,
+                user_id=st.session_state.get("user_id"),
+                company_id=st.session_state.get("company_id")
+            )
+
             count = 0
             for email in emails:
-                if save_email_as_lead(email, user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id")):
+                if save_email_as_lead(
+                    email,
+                    user_id=st.session_state.get("user_id"),
+                    company_id=st.session_state.get("company_id")
+                ):
                     count += 1
+
             st.success(f"{count}件の利益候補を検出しました。")
+
         except Exception as e:
-            st.error(f"Gmail解析エラー: {e}")
-
-    if st.button("解析データをリセット", key="settings_reset_data_restored"):
-        reset_database(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
-        st.success("解析データをリセットしました。")
-
-    df = get_leads(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
-
-    if df.empty:
-        st.markdown('<div class="main-title">Profit Radar</div>', unsafe_allow_html=True)
-        st.markdown('<div class="sub-title">左の「Gmailを解析する」から利益候補を検出してください。</div>', unsafe_allow_html=True)
-        st.stop()
+            st.error(f"Gmail解析に失敗しました: {e}")
 
     st.divider()
 
-    st.markdown("### CSV出力")
-    st.caption("現在表示中の案件一覧をCSVで保存します。")
+    st.markdown("### 返信チェック")
+    st.caption("送信済みメールに返信が来ているか確認します。")
 
-    try:
-        export_df = df_view.copy() if "df_view" in globals() else df.copy()
-        csv_data = export_df.to_csv(index=False).encode("utf-8-sig")
-
-        st.download_button(
-            "案件一覧をCSV保存",
-            csv_data,
-            "profit_radar_leads.csv",
-            "text/csv",
-            key="settings_csv_download"
-        )
-    except Exception as e:
-        st.warning(f"CSV出力を表示できません: {e}")
-
-    st.divider()
-
-    st.markdown("### Gmail返信検知")
-
-    if st.button("Gmail返信をチェック"):
+    if st.button("返信をチェックする"):
         try:
-            from reply_detector import detect_replies, get_sent_gmail_replies
-
-            current_user_id = st.session_state.get("user_id")
-            current_company_id = st.session_state.get("company_id")
-
-            st.caption("Gmailの返信を確認します。")
-
-            sent_actions = get_sent_gmail_replies(
-                limit=30,
-                user_id=current_user_id,
-                company_id=current_company_id
-            )
-
-            st.markdown("#### 送信済みGmail履歴")
-            if not sent_actions:
-                st.warning("返信検知対象の送信履歴がありません。Gmail送信が profit_actions に保存されていない可能性があります。")
-            else:
-                st.dataframe(pd.DataFrame(sent_actions), use_container_width=True)
-
             results = detect_replies(
                 limit=30,
-                user_id=current_user_id,
-                company_id=current_company_id
+                user_id=st.session_state.get("user_id"),
+                company_id=st.session_state.get("company_id")
             )
 
-            st.markdown("#### 返信検知結果")
-            if not results:
-                st.info("新しい返信は検知されませんでした。")
+            ok_results = [r for r in results if not r.get("error")]
+            error_results = [r for r in results if r.get("error")]
+
+            if ok_results:
+                st.success(f"{len(ok_results)}件の返信を検知しました。")
+                for r in ok_results[:5]:
+                    st.markdown(f"""
+                    <div class="lead-card">
+                        <div>
+                            <div class="lead-title">返信あり</div>
+                            <div class="lead-sub">{safe(r.get("from_email", ""))}</div>
+                        </div>
+                        <div class="lead-money">{safe(r.get("subject", "件名なし"))}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
             else:
-                st.success(f"{len(results)}件の返信を検知しました。")
-                st.dataframe(pd.DataFrame(results), use_container_width=True)
+                st.info("新しい返信はありません。")
+
+            if error_results:
+                st.warning("一部の返信確認に失敗しました。時間をおいて再実行してください。")
 
         except Exception as e:
-            st.error(f"返信検知エラー: {e}")
+            st.error(f"返信チェックに失敗しました: {e}")
 
-    st.markdown("### 返信確認履歴")
+    st.divider()
 
+    st.markdown("### 最近の返信")
     try:
+        ensure_reply_detection_columns()
+
         conn = sqlite3.connect(DB)
-        reply_logs = pd.read_sql_query(
-            """
-            SELECT from_email AS 送信者, subject AS 件名, detected_at AS 検知日時
+        recent_replies = pd.read_sql_query("""
+            SELECT from_email, subject, detected_at
             FROM reply_detection_logs
             ORDER BY id DESC
-            LIMIT 10
-            """,
-            conn
-        )
+            LIMIT 5
+        """, conn)
         conn.close()
 
-        if reply_logs.empty:
-            st.info("返信検知ログはまだありません。")
+        if recent_replies.empty:
+            st.info("返信確認履歴はまだありません。")
         else:
-            st.dataframe(reply_logs, use_container_width=True)
+            for _, r in recent_replies.iterrows():
+                st.markdown(f"""
+                <div class="lead-card">
+                    <div>
+                        <div class="lead-title">{safe(r.get("subject", "件名なし"))}</div>
+                        <div class="lead-sub">From: {safe(r.get("from_email", ""))}</div>
+                    </div>
+                    <div class="lead-days">{safe(str(r.get("detected_at", ""))[:16])}</div>
+                </div>
+                """, unsafe_allow_html=True)
 
-    except Exception as e:
-        st.warning(f"返信検知ログを表示できません: {e}")
-
-
+    except Exception:
+        st.info("返信確認履歴はまだありません。")

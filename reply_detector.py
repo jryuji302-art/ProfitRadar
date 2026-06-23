@@ -91,6 +91,18 @@ def init_reply_detection_db():
         except Exception:
             pass
 
+    for sql in [
+        "ALTER TABLE reply_detection_logs ADD COLUMN user_id INTEGER DEFAULT 1",
+        "ALTER TABLE reply_detection_logs ADD COLUMN company_id INTEGER DEFAULT 1",
+        "ALTER TABLE reply_detection_logs ADD COLUMN reply_body TEXT",
+        "ALTER TABLE reply_detection_logs ADD COLUMN reply_date TEXT",
+    ]:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception:
+            pass
+
     conn.commit()
     conn.close()
 
