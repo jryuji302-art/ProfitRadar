@@ -1539,7 +1539,9 @@ with tabs[1]:
                             to_email=to_email,
                             subject=safe_subject,
                             body=follow_body,
-                            status="saved"
+                            status="saved",
+                            user_id=st.session_state.get("user_id"),
+                            company_id=st.session_state.get("company_id")
                         )
                         st.success("フォロー文を保存しました。")
                     except Exception as e:
@@ -1567,7 +1569,9 @@ with tabs[1]:
                             body=follow_body,
                             lead_id=int(lead_id),
                             action_type="gmail_reply",
-                            force_send=False
+                            force_send=False,
+                            user_id=st.session_state.get("user_id"),
+                            company_id=st.session_state.get("company_id")
                         )
 
                         gmail_result_id = result.get("id", "")
@@ -1581,7 +1585,9 @@ with tabs[1]:
                             body=follow_body,
                             status="sent",
                             safety_ok=1,
-                            gmail_result_id=gmail_result_id
+                            gmail_result_id=gmail_result_id,
+                            user_id=st.session_state.get("user_id"),
+                            company_id=st.session_state.get("company_id")
                         )
 
                         update_lead_status(int(lead_id), "対応済み", user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
@@ -1599,7 +1605,9 @@ with tabs[1]:
                                 body=follow_body,
                                 status="failed",
                                 safety_ok=0,
-                                safety_errors=str(e)
+                                safety_errors=str(e),
+                                user_id=st.session_state.get("user_id"),
+                                company_id=st.session_state.get("company_id")
                             )
                         except Exception:
                             pass
