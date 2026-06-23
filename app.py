@@ -2017,24 +2017,37 @@ with tabs[4]:
 
     if st.button("Gmail返信をチェック"):
         try:
-            from reply_detector import detect_replies
+            from reply_detector import detect_replies, get_sent_gmail_replies
 
-            results = detect_replies(limit=30, user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
+            current_user_id = st.session_state.get("user_id")
+            current_company_id = st.session_state.get("company_id")
 
+            st.caption(f"確認対象 user_id={current_user_id} / company_id={current_company_id}")
+
+            sent_actions = get_sent_gmail_replies(
+                limit=30,
+                user_id=current_user_id,
+                company_id=current_company_id
+            )
+
+            st.markdown("#### 送信済みGmail履歴")
+            if not sent_actions:
+                st.warning("返信検知対象の送信履歴がありません。Gmail送信が profit_actions に保存されていない可能性があります。")
+            else:
+                st.dataframe(pd.DataFrame(sent_actions), use_container_width=True)
+
+            results = detect_replies(
+                limit=30,
+                user_id=current_user_id,
+                company_id=current_company_id
+            )
+
+            st.markdown("#### 返信検知結果")
             if not results:
                 st.info("新しい返信は検知されませんでした。")
             else:
                 st.success(f"{len(results)}件の返信を検知しました。")
-
-                for r in results:
-                    if "error" in r:
-                        st.warning(f"lead_id={r.get('lead_id')} エラー: {r.get('error')}")
-                    else:
-                        st.write(
-                            f"lead_id={r.get('lead_id')} / "
-                            f"from={r.get('from_email')} / "
-                            f"subject={r.get('subject')}"
-                        )
+                st.dataframe(pd.DataFrame(results), use_container_width=True)
 
         except Exception as e:
             st.error(f"返信検知エラー: {e}")
