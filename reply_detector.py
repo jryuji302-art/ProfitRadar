@@ -266,7 +266,9 @@ def detect_replies(limit=30, user_id=1, company_id=1):
                 if not from_email:
                     continue
 
-                if from_email != to_email:
+                # 返信者メールが to_email と完全一致しないケースがあるため、
+                # 同一スレッド内で自分以外の送信者なら返信候補として扱う
+                if not from_email:
                     continue
 
                 if already_detected(action_id, msg_id, user_id=user_id, company_id=company_id):
