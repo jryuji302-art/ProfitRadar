@@ -19,6 +19,7 @@ from ai_advisor_engine import build_ai_dashboard_advice, format_ai_dashboard_adv
 from openai_sales_engine import build_sales_ai, fallback_sales_ai
 from openai_advisor_engine import build_openai_advice
 from openai_followup_engine import generate_followup as generate_openai_followup
+from reply_detector import detect_replies, ensure_reply_detection_columns
 
 DB = "profit_radar.db"
 
