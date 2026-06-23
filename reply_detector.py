@@ -210,28 +210,49 @@ def save_action_log(lead_id, message, user_id=1, company_id=1):
     conn.close()
 
 
+
 def detect_replies(limit=30, user_id=1, company_id=1):
     """
-    送信済みgmail_replyのthreadを確認し、
-    自分以外からの新しい返信を検知する。
+    通常の返信検知。
+    最新スレッド確認版に統一する。
+    """
+    return force_detect_latest_replies(limit=limit, user_id=user_id, company_id=company_id)
+
+
+if __name__ == "__main__":
+    results = detect_replies()
+    if not results:
+        print("返信検知なし")
+    else:
+        for r in results:
+            print(r)
+
+
+def force_detect_latest_replies(limit=30, user_id=1, company_id=1):
+    """
+    送信済みGmailスレッドから、自分以外の最新返信を強制確認する。
+    既存検知済みでも最新状態を返す確認用。
     """
     init_reply_detection_db()
+
     service = get_gmail_service(user_id=user_id, company_id=company_id)
+    my_email = service.users().getProfile(userId="me").execute().get("emailAddress", "").lower().strip()
+
     sent_actions = get_sent_gmail_replies(limit=limit, user_id=user_id, company_id=company_id)
 
-    detected = []
+    results = []
+    seen_gmail_ids = set()
 
     for action in sent_actions:
-        action_id = int(action.get("id"))
-        lead_id = int(action.get("lead_id"))
-        original_gmail_id = action.get("gmail_id", "")
-        sent_gmail_id = action.get("gmail_result_id", "")
-        to_email = str(action.get("to_email", "") or "").lower().strip()
-
-        if not original_gmail_id:
-            continue
-
         try:
+            action_id = int(action.get("id"))
+            lead_id = int(action.get("lead_id"))
+            original_gmail_id = action.get("gmail_id", "")
+            sent_gmail_id = action.get("gmail_result_id", "")
+
+            if not original_gmail_id:
+                continue
+
             meta = get_original_email_meta(original_gmail_id, user_id=user_id, company_id=company_id)
             thread_id = meta.get("thread_id")
             if not thread_id:
@@ -240,11 +261,11 @@ def detect_replies(limit=30, user_id=1, company_id=1):
             thread = service.users().threads().get(
                 userId="me",
                 id=thread_id,
-                format="full",
-                metadataHeaders=["From", "Subject", "Date"]
+                format="full"
             ).execute()
 
             messages = thread.get("messages", [])
+            latest_customer_msg = None
 
             for msg in messages:
                 msg_id = msg.get("id")
@@ -253,28 +274,39 @@ def detect_replies(limit=30, user_id=1, company_id=1):
                     continue
 
                 headers = {
-                    h["name"]: h["value"]
+                    h.get("name"): h.get("value")
                     for h in msg.get("payload", {}).get("headers", [])
                 }
 
                 _, from_email = parseaddr(headers.get("From", ""))
                 from_email = from_email.lower().strip()
-                subject = headers.get("Subject", "")
-                reply_date = headers.get("Date", "")
-                reply_body = extract_gmail_body(msg.get("payload", {})).strip()
 
-                if not from_email:
+                if not from_email or from_email == my_email:
                     continue
 
-                # 返信者メールが to_email と完全一致しないケースがあるため、
-                # 同一スレッド内で自分以外の送信者なら返信候補として扱う
-                if not from_email:
-                    continue
+                latest_customer_msg = msg
 
-                if already_detected(action_id, msg_id, user_id=user_id, company_id=company_id):
-                    continue
+            if not latest_customer_msg:
+                continue
 
-                saved = save_detection(
+            msg_id = latest_customer_msg.get("id")
+            headers = {
+                h.get("name"): h.get("value")
+                for h in latest_customer_msg.get("payload", {}).get("headers", [])
+            }
+
+            _, from_email = parseaddr(headers.get("From", ""))
+            from_email = from_email.lower().strip()
+            subject = headers.get("Subject", "")
+            reply_date = headers.get("Date", "")
+            reply_body = extract_gmail_body(latest_customer_msg.get("payload", {})).strip()
+
+            if msg_id in seen_gmail_ids:
+                continue
+            seen_gmail_ids.add(msg_id)
+
+            if not already_detected(action_id, msg_id, user_id=user_id, company_id=company_id):
+                save_detection(
                     lead_id=lead_id,
                     action_id=action_id,
                     gmail_id=msg_id,
@@ -287,9 +319,6 @@ def detect_replies(limit=30, user_id=1, company_id=1):
                     company_id=company_id
                 )
 
-                if not saved:
-                    continue
-
                 update_lead_after_reply(lead_id, user_id=user_id, company_id=company_id)
                 save_action_log(
                     lead_id,
@@ -298,30 +327,20 @@ def detect_replies(limit=30, user_id=1, company_id=1):
                     company_id=company_id
                 )
 
-                detected.append({
-                    "lead_id": lead_id,
-                    "action_id": action_id,
-                    "gmail_id": msg_id,
-                    "from_email": from_email,
-                    "subject": subject,
-                    "reply_body": reply_body[:300],
-                    "reply_date": reply_date,
-                })
-
-        except Exception as e:
-            detected.append({
+            results.append({
                 "lead_id": lead_id,
                 "action_id": action_id,
+                "gmail_id": msg_id,
+                "from_email": from_email,
+                "subject": subject,
+                "reply_body": reply_body[:300],
+            })
+
+        except Exception as e:
+            results.append({
+                "lead_id": action.get("lead_id"),
+                "action_id": action.get("id"),
                 "error": str(e),
             })
 
-    return detected
-
-
-if __name__ == "__main__":
-    results = detect_replies()
-    if not results:
-        print("返信検知なし")
-    else:
-        for r in results:
-            print(r)
+    return results
