@@ -349,7 +349,26 @@ def get_leads(user_id=None, company_id=None):
 
 
 
+
+def ensure_reply_detection_columns():
+    conn = sqlite3.connect(DB)
+    c = conn.cursor()
+
+    for sql in [
+        "ALTER TABLE reply_detection_logs ADD COLUMN reply_body TEXT",
+        "ALTER TABLE reply_detection_logs ADD COLUMN reply_date TEXT",
+    ]:
+        try:
+            c.execute(sql)
+            conn.commit()
+        except Exception:
+            pass
+
+    conn.close()
+
+
 def get_customer_timeline(lead_ids):
+    ensure_reply_detection_columns()
 
     import sqlite3
     import pandas as pd
@@ -1775,19 +1794,6 @@ tab_names = [
 
 tabs = st.tabs(tab_names)
 
-hot_df = df_view[
-    (df_view["status"] == "未対応") &
-    (df_view.get("hot_lead", 0) == 1)
-].sort_values("opportunity_score", ascending=False).head(5)
-
-if not hot_df.empty:
-    st.subheader("優先案件")
-    for _, row in hot_df.iterrows():
-        st.warning(
-            f"{row.get('customer', '')}｜{row.get('subject', '')}｜"
-            f"Opp {int(row.get('opportunity_score', 0) or 0)}｜"
-            f"回収見込み {money(row.get('recoverable_profit', 0))}"
-        )
 
 priority_sort_col = "opportunity_score" if "opportunity_score" in df_view.columns else "revenue_score"
 priority_df = df_view[df_view["status"] == "未対応"].sort_values(priority_sort_col, ascending=False).head(5)
