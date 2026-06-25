@@ -1835,12 +1835,15 @@ with tabs[0]:
                 return "請求・入金条件を確認し、回収漏れを防いでください。"
             if "電話" in raw:
                 return "今日中に電話して、次の条件を確定してください。"
-            if raw and raw not in ["フォロー確認", "確認"]:
-                return raw
+            if raw in ["フォロー確認", "確認", ""]:
+                if profit >= 100000:
+                    return "今日中に返信してください。高利益案件なので、放置すると回収機会を逃す可能性があります。"
+                return "今日中に返信して、案件が止まらないように状況確認してください。"
 
-            if profit >= 100000:
-                return "今日返信してください。高利益案件なので放置すると機会損失が大きいです。"
-            return "今日返信して、案件が止まらないように状況確認してください。"
+            if len(raw) < 8:
+                return "今日中に返信して、次の条件確認まで進めてください。"
+
+            return raw
 
         def button_label(row):
             text = str(row.get("next_action", "") or "")
