@@ -1919,7 +1919,94 @@ with tabs[0]:
                         st.session_state["home_selected_lead_id"] = lead_id_v
                         st.success(f"{customer_v} を選択しました。次に「🔥 要対応」タブを開いて送信文を確認してください。")
 
-            st.caption("送信・編集・詳細確認は「🔥 要対応」タブで行います。")
+            selected_home_id = st.session_state.get("home_selected_lead_id")
+
+            if selected_home_id:
+                try:
+                    selected_home_id_int = int(selected_home_id)
+                    selected_rows = active_df[active_df["id"].astype(int) == selected_home_id_int]
+
+                    if not selected_rows.empty:
+                        lead_home = selected_rows.iloc[0]
+                        lead_home_id = int(lead_home.get("id", 0) or 0)
+
+                        st.divider()
+                        st.markdown("## ✉️ この案件を対応する")
+                        st.success(f"{clean_customer_name(lead_home.get('customer', ''))} の対応画面を開いています。")
+
+                        c1, c2 = st.columns([1, 1])
+                        c1.metric("回収見込み", money(lead_home.get("recoverable_profit", 0)))
+                        c2.metric("見込み利益", money(lead_home.get("estimated_profit", 0)))
+
+                        st.markdown(f"### {clean_customer_name(lead_home.get('customer', ''))}")
+                        st.caption(safe_text(lead_home.get("subject", ""), "件名なし"))
+
+                        with st.expander("元メールを見る"):
+                            st.text_area(
+                                "メール本文",
+                                str(lead_home.get("content", "") or ""),
+                                height=180,
+                                key=f"home_inline_body_{lead_home_id}"
+                            )
+
+                        st.markdown("### AI判断")
+
+                        try:
+                            home_ai_advice = build_sales_ai(
+                                customer=str(lead_home.get("customer", "")),
+                                subject=str(lead_home.get("subject", "")),
+                                lead_content=str(lead_home.get("content", "")),
+                                last_sent_body="",
+                                reply_body="",
+                                memo=str(lead_home.get("memo", "")),
+                                estimated_profit=int(lead_home.get("estimated_profit", 0) or 0),
+                                recoverable_profit=int(lead_home.get("recoverable_profit", 0) or 0),
+                                actual_revenue=int(lead_home.get("actual_revenue", 0) or 0),
+                                mode="home_inline"
+                            )
+                        except Exception as e:
+                            home_ai_advice = fallback_sales_ai(
+                                reply_body=str(lead_home.get("content", "")),
+                                estimated_profit=int(lead_home.get("estimated_profit", 0) or 0),
+                                recoverable_profit=int(lead_home.get("recoverable_profit", 0) or 0)
+                            ) + f"\n\n補足: OpenAI未使用: {e}"
+
+                        render_ceo_sales_card(
+                            home_ai_advice,
+                            fallback_profit=int(lead_home.get("recoverable_profit", 0) or 0)
+                        )
+
+                        st.markdown("### 返信文")
+
+                        try:
+                            default_home_follow = extract_recommended_reply_from_ai(home_ai_advice)
+                        except Exception:
+                            default_home_follow = ""
+
+                        if not default_home_follow or len(default_home_follow) < 10:
+                            safe_subject_home = str(lead_home.get("subject", "") or "ご確認のお願い")
+                            default_home_follow = f"""お世話になっております。
+
+下記の件について、進行状況を確認させてください。
+
+件名：{safe_subject_home}
+
+ご確認いただき、進められそうであれば次の流れをご相談できればと思います。
+よろしくお願いいたします。"""
+
+                        st.text_area(
+                            "必要なら編集してください。",
+                            default_home_follow,
+                            height=180,
+                            key=f"home_inline_follow_{lead_home_id}"
+                        )
+
+                        st.info("次の工程で、このホーム画面から直接Gmail送信できるようにします。")
+
+                except Exception as e:
+                    st.warning(f"ホーム対応画面を表示できませんでした: {e}")
+
+            st.caption("今はホームで案件を選び、内容確認までできます。送信統合は次に実装します。")
 with tabs[1]:
     st.subheader("🔥 要対応")
     st.caption("返信・フォローが必要な案件を確認し、AI文面を編集して送信します。")
