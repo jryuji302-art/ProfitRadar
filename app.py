@@ -1810,7 +1810,10 @@ with tabs[0]:
             if col not in home_df.columns:
                 home_df[col] = ""
 
-        for num_col in ["recoverable_profit", "estimated_profit", "neglected_days", "opportunity_score", "revenue_score"]:
+        for num_col in [
+            "recoverable_profit", "estimated_profit", "neglected_days",
+            "opportunity_score", "revenue_score"
+        ]:
             home_df[num_col] = pd.to_numeric(home_df[num_col], errors="coerce").fillna(0)
 
         def clean_customer_name(v):
@@ -1823,6 +1826,7 @@ with tabs[0]:
             text = str(row.get("next_action", "") or "")
             status = str(row.get("pipeline_stage", "") or row.get("status", "") or "")
             joined = text + " " + status
+
             if "電話" in joined:
                 return "📞 電話する"
             if "日程" in joined or "面談" in joined:
@@ -1835,6 +1839,7 @@ with tabs[0]:
             status = str(row.get("pipeline_stage", "") or row.get("status", "") or "")
             temp = str(row.get("sales_temperature", "") or "")
             profit = int(row.get("profit_for_today", 0) or 0)
+
             if "返信あり" in status:
                 return "🔥 返信あり"
             if "契約" in status or "成約" in status:
@@ -1865,24 +1870,8 @@ with tabs[0]:
             top_df = active_df.head(3).copy()
             today_profit = int(top_df["profit_for_today"].sum())
 
-            st.markdown(f"""
-            <div style="
-                background:linear-gradient(135deg,#0f172a,#1e293b);
-                color:white;
-                padding:22px 18px;
-                border-radius:22px;
-                margin:10px 0 16px 0;
-                box-shadow:0 12px 30px rgba(15,23,42,0.20);
-            ">
-                <div style="font-size:14px; opacity:0.85;">今日回収に動かす利益</div>
-                <div style="font-size:40px; font-weight:950; letter-spacing:-1px; margin-top:4px;">
-                    {money(today_profit)}
-                </div>
-                <div style="font-size:14px; opacity:0.86; margin-top:10px; line-height:1.6;">
-                    AI判断：今日は上から3件だけ処理してください。
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+            st.metric("💰 今日回収に動かす利益", money(today_profit))
+            st.info("AI判断：今日は上から3件だけ処理してください。")
 
             st.markdown("### 🔥 今日やること")
 
@@ -1895,59 +1884,20 @@ with tabs[0]:
                 stage_v = ceo_stage_label(row)
                 button_v = ceo_action_label(row)
 
-                st.markdown(f"""
-                <div style="
-                    border:1px solid #e5e7eb;
-                    background:#ffffff;
-                    border-radius:22px;
-                    padding:18px 18px;
-                    margin:14px 0;
-                    box-shadow:0 8px 22px rgba(15,23,42,0.07);
-                ">
-                    <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
-                        <div style="font-size:14px; font-weight:900; color:#2563eb;">
-                            #{idx} {safe(stage_v)}
-                        </div>
-                        <div style="font-size:16px; font-weight:950; color:#16a34a;">
-                            {money(profit_v)}
-                        </div>
-                    </div>
+                with st.container(border=True):
+                    c1, c2 = st.columns([2, 1])
+                    with c1:
+                        st.markdown(f"#### #{idx} {stage_v}")
+                    with c2:
+                        st.markdown(f"### {money(profit_v)}")
 
-                    <div style="font-size:22px; font-weight:950; color:#111827; margin-top:10px; line-height:1.3;">
-                        {safe(customer_v)}
-                    </div>
+                    st.markdown(f"### {customer_v}")
+                    st.caption(subject_v)
 
-                    <div style="font-size:14px; color:#64748b; margin-top:4px; line-height:1.5;">
-                        {safe(subject_v)}
-                    </div>
+                    st.markdown("**AIの指示**")
+                    st.write(action_v)
 
-                    <div style="
-                        background:#f8fafc;
-                        border-radius:16px;
-                        padding:13px;
-                        margin-top:13px;
-                        font-size:16px;
-                        color:#0f172a;
-                        line-height:1.7;
-                    ">
-                        <b>AIの指示：</b><br>
-                        {safe(action_v)}
-                    </div>
-
-                    <div style="
-                        margin-top:14px;
-                        background:#2563eb;
-                        color:white;
-                        text-align:center;
-                        border-radius:14px;
-                        padding:13px 12px;
-                        font-size:16px;
-                        font-weight:900;
-                    ">
-                        {safe(button_v)}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+                    st.button(button_v, key=f"home_action_btn_{lead_id_v}", use_container_width=True)
 
             st.caption("送信・編集・詳細確認は「🔥 要対応」タブで行います。")
 
