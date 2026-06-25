@@ -1794,17 +1794,118 @@ priority_df = df_view[df_view["status"] == "未対応"].sort_values(priority_sor
 
 with tabs[0]:
     st.subheader("🏠 今日の利益")
-    st.caption("今日見るべき利益状況と優先案件を確認します。詳細対応は「🔥 要対応」で行います。")
+    st.caption("今日、誰に何をすれば利益につながるかだけを表示します。")
 
     if df_view.empty:
-        st.info("表示できる案件がありません。")
+        st.info("表示できる案件がありません。まずGmail解析を実行してください。")
     else:
-        priority_sort_col = "opportunity_score" if "opportunity_score" in df_view.columns else "revenue_score"
-        dashboard_df = df_view.sort_values(priority_sort_col, ascending=False).copy()
+        home_df = df_view.copy()
 
-        st.markdown("### 優先案件")
-        for _, row in dashboard_df.head(8).iterrows():
-            lead_card(row)
+        for col in [
+            "id", "customer", "subject", "status", "pipeline_stage",
+            "next_action", "recoverable_profit", "estimated_profit",
+            "neglected_days", "opportunity_score", "revenue_score",
+            "sales_temperature"
+        ]:
+            if col not in home_df.columns:
+                home_df[col] = ""
+
+        for num_col in ["recoverable_profit", "estimated_profit", "neglected_days", "opportunity_score", "revenue_score"]:
+            home_df[num_col] = pd.to_numeric(home_df[num_col], errors="coerce").fillna(0)
+
+        score_col = "opportunity_score" if "opportunity_score" in home_df.columns else "revenue_score"
+
+        active_df = home_df[
+            ~home_df["status"].astype(str).isin(["対応済み", "完了", "失注", "除外"])
+        ].copy()
+
+        if active_df.empty:
+            st.success("現在、今日対応すべき案件はありません。")
+        else:
+            active_df["profit_for_today"] = active_df["recoverable_profit"]
+            active_df.loc[active_df["profit_for_today"] <= 0, "profit_for_today"] = active_df["estimated_profit"]
+
+            active_df = active_df.sort_values(
+                ["profit_for_today", score_col, "neglected_days"],
+                ascending=False
+            )
+
+            today_profit = int(active_df.head(5)["profit_for_today"].sum())
+            urgent_count = int(len(active_df.head(5)))
+
+            st.markdown(f"""
+            <div style="
+                background:linear-gradient(135deg,#0f172a,#1e293b);
+                color:white;
+                padding:22px 18px;
+                border-radius:20px;
+                margin:10px 0 18px 0;
+                box-shadow:0 10px 25px rgba(15,23,42,0.18);
+            ">
+                <div style="font-size:14px; opacity:0.85;">今日動かせる見込み利益</div>
+                <div style="font-size:38px; font-weight:900; letter-spacing:-1px; margin-top:4px;">
+                    {money(today_profit)}
+                </div>
+                <div style="font-size:13px; opacity:0.82; margin-top:8px;">
+                    優先対応 {urgent_count}件。上から順に処理してください。
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.markdown("### 🔥 今日やること")
+
+            for idx, (_, row) in enumerate(active_df.head(3).iterrows(), start=1):
+                lead_id_v = int(row.get("id", 0) or 0)
+                customer_v = safe_text(row.get("customer", ""), "不明顧客")
+                subject_v = safe_text(row.get("subject", ""), "件名なし")
+                action_v = safe_text(row.get("next_action", ""), "返信・状況確認をしてください")
+                status_v = safe_text(row.get("pipeline_stage", "") or row.get("status", ""), "未対応")
+                temp_v = safe_text(row.get("sales_temperature", ""), "未判定")
+                profit_v = int(row.get("profit_for_today", 0) or 0)
+                days_v = int(row.get("neglected_days", 0) or 0)
+
+                st.markdown(f"""
+                <div style="
+                    border:1px solid #e5e7eb;
+                    background:#ffffff;
+                    border-radius:18px;
+                    padding:16px 16px;
+                    margin:12px 0;
+                    box-shadow:0 6px 18px rgba(15,23,42,0.06);
+                ">
+                    <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
+                        <div style="font-size:13px; font-weight:800; color:#2563eb;">
+                            #{idx} 今日の優先案件
+                        </div>
+                        <div style="font-size:13px; font-weight:900; color:#16a34a;">
+                            {money(profit_v)}
+                        </div>
+                    </div>
+                    <div style="font-size:19px; font-weight:900; color:#111827; margin-top:6px; line-height:1.35;">
+                        {safe(customer_v)}
+                    </div>
+                    <div style="font-size:14px; color:#64748b; margin-top:3px; line-height:1.5;">
+                        {safe(subject_v)}
+                    </div>
+                    <div style="
+                        background:#f8fafc;
+                        border-radius:14px;
+                        padding:12px;
+                        margin-top:12px;
+                        font-size:15px;
+                        color:#0f172a;
+                        line-height:1.6;
+                    ">
+                        <b>次にやること：</b><br>
+                        {safe(action_v)}
+                    </div>
+                    <div style="font-size:12px; color:#64748b; margin-top:10px;">
+                        状態：{safe(status_v)} ｜ 温度：{safe(temp_v)} ｜ 放置：{days_v}日 ｜ 案件ID：{lead_id_v}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.info("詳細対応・送信は「🔥 要対応」タブで行います。")
 
 
 
