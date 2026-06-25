@@ -1914,7 +1914,7 @@ with tabs[0]:
                     if st.button(btn_v, key=f"home_go_action_{lead_id_v}", use_container_width=True):
                         st.session_state["selected_lead_id"] = lead_id_v
                         st.session_state["home_selected_lead_id"] = lead_id_v
-                        st.info("「🔥 要対応」タブを開いて、この案件を処理してください。")
+                        st.success(f"{customer_v} を選択しました。次に「🔥 要対応」タブを開いて送信文を確認してください。")
 
             st.caption("送信・編集・詳細確認は「🔥 要対応」タブで行います。")
 with tabs[1]:
