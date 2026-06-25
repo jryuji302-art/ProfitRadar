@@ -1975,11 +1975,13 @@ with tabs[1]:
                 except Exception:
                     default_index = 0
 
+            select_key = f"hot_reply_select_{home_selected_lead_id or 'default'}"
+
             selected_label = st.selectbox(
                 "返信する案件を選択",
                 lead_options,
                 index=default_index,
-                key="hot_reply_select"
+                key=select_key
             )
 
             lead_id = lead_map[selected_label]
