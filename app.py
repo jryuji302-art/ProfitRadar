@@ -1780,7 +1780,6 @@ dev_mode = False
 
 tab_names = [
     "🏠 今日の利益",
-    "🔥 要対応",
     "👥 顧客",
     "📈 実績",
     "⚙️ Gmail接続",
@@ -2007,6 +2006,10 @@ with tabs[0]:
                     st.warning(f"ホーム対応画面を表示できませんでした: {e}")
 
             st.caption("今はホームで案件を選び、内容確認までできます。送信統合は次に実装します。")
+if False:
+    # 旧 要対応タブ：ホーム統合後は非表示
+    pass
+
 with tabs[1]:
     st.subheader("🔥 要対応")
     st.caption("返信・フォローが必要な案件を確認し、AI文面を編集して送信します。")
@@ -2275,7 +2278,7 @@ with tabs[1]:
 
 
 
-with tabs[2]:
+with tabs[1]:
     st.subheader("👥 顧客")
 
     customer_df = df_view.groupby("customer").agg(
@@ -2508,7 +2511,7 @@ if False:
             save_action_log(int(lead_id), "status_update", "未対応に変更", "open")
             st.info("未対応に戻しました。")
 
-with tabs[3]:
+with tabs[2]:
     st.subheader("📈 実績")
     st.caption("売上の現在地だけを確認します。")
 
@@ -2573,7 +2576,7 @@ with tabs[3]:
                 </div>
                 """, unsafe_allow_html=True)
 
-with tabs[4]:
+with tabs[3]:
     st.subheader("⚙️ Gmail接続")
     st.caption("Gmailの接続、メール解析、返信チェックを行います。")
 
