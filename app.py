@@ -1794,7 +1794,7 @@ priority_df = df_view[df_view["status"] == "未対応"].sort_values(priority_sor
 
 with tabs[0]:
     st.subheader("🏠 今日の利益")
-    st.caption("今日、誰に何をすれば利益につながるかだけを表示します。")
+    st.caption("開いたら、上から3件だけ処理してください。")
 
     if df_view.empty:
         st.info("表示できる案件がありません。まずGmail解析を実行してください。")
@@ -1813,6 +1813,38 @@ with tabs[0]:
         for num_col in ["recoverable_profit", "estimated_profit", "neglected_days", "opportunity_score", "revenue_score"]:
             home_df[num_col] = pd.to_numeric(home_df[num_col], errors="coerce").fillna(0)
 
+        def clean_customer_name(v):
+            v = str(v or "").strip()
+            if "<" in v:
+                v = v.split("<")[0].strip()
+            return v or "不明顧客"
+
+        def ceo_action_label(row):
+            text = str(row.get("next_action", "") or "")
+            status = str(row.get("pipeline_stage", "") or row.get("status", "") or "")
+            joined = text + " " + status
+            if "電話" in joined:
+                return "📞 電話する"
+            if "日程" in joined or "面談" in joined:
+                return "📅 日程確認"
+            if "契約" in joined or "請求" in joined:
+                return "💰 契約・請求確認"
+            return "📩 返信する"
+
+        def ceo_stage_label(row):
+            status = str(row.get("pipeline_stage", "") or row.get("status", "") or "")
+            temp = str(row.get("sales_temperature", "") or "")
+            profit = int(row.get("profit_for_today", 0) or 0)
+            if "返信あり" in status:
+                return "🔥 返信あり"
+            if "契約" in status or "成約" in status:
+                return "🔥 契約目前"
+            if profit >= 100000:
+                return "🔥 高利益案件"
+            if temp and temp != "未判定":
+                return f"🔥 {temp}"
+            return "⚡ 要対応"
+
         score_col = "opportunity_score" if "opportunity_score" in home_df.columns else "revenue_score"
 
         active_df = home_df[
@@ -1830,82 +1862,94 @@ with tabs[0]:
                 ascending=False
             )
 
-            today_profit = int(active_df.head(5)["profit_for_today"].sum())
-            urgent_count = int(len(active_df.head(5)))
+            top_df = active_df.head(3).copy()
+            today_profit = int(top_df["profit_for_today"].sum())
 
             st.markdown(f"""
             <div style="
                 background:linear-gradient(135deg,#0f172a,#1e293b);
                 color:white;
                 padding:22px 18px;
-                border-radius:20px;
-                margin:10px 0 18px 0;
-                box-shadow:0 10px 25px rgba(15,23,42,0.18);
+                border-radius:22px;
+                margin:10px 0 16px 0;
+                box-shadow:0 12px 30px rgba(15,23,42,0.20);
             ">
-                <div style="font-size:14px; opacity:0.85;">今日動かせる見込み利益</div>
-                <div style="font-size:38px; font-weight:900; letter-spacing:-1px; margin-top:4px;">
+                <div style="font-size:14px; opacity:0.85;">今日回収に動かす利益</div>
+                <div style="font-size:40px; font-weight:950; letter-spacing:-1px; margin-top:4px;">
                     {money(today_profit)}
                 </div>
-                <div style="font-size:13px; opacity:0.82; margin-top:8px;">
-                    優先対応 {urgent_count}件。上から順に処理してください。
+                <div style="font-size:14px; opacity:0.86; margin-top:10px; line-height:1.6;">
+                    AI判断：今日は上から3件だけ処理してください。
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
             st.markdown("### 🔥 今日やること")
 
-            for idx, (_, row) in enumerate(active_df.head(3).iterrows(), start=1):
+            for idx, (_, row) in enumerate(top_df.iterrows(), start=1):
                 lead_id_v = int(row.get("id", 0) or 0)
-                customer_v = safe_text(row.get("customer", ""), "不明顧客")
+                customer_v = clean_customer_name(row.get("customer", ""))
                 subject_v = safe_text(row.get("subject", ""), "件名なし")
-                action_v = safe_text(row.get("next_action", ""), "返信・状況確認をしてください")
-                status_v = safe_text(row.get("pipeline_stage", "") or row.get("status", ""), "未対応")
-                temp_v = safe_text(row.get("sales_temperature", ""), "未判定")
+                action_v = safe_text(row.get("next_action", ""), "返信して状況を前に進めてください")
                 profit_v = int(row.get("profit_for_today", 0) or 0)
-                days_v = int(row.get("neglected_days", 0) or 0)
+                stage_v = ceo_stage_label(row)
+                button_v = ceo_action_label(row)
 
                 st.markdown(f"""
                 <div style="
                     border:1px solid #e5e7eb;
                     background:#ffffff;
-                    border-radius:18px;
-                    padding:16px 16px;
-                    margin:12px 0;
-                    box-shadow:0 6px 18px rgba(15,23,42,0.06);
+                    border-radius:22px;
+                    padding:18px 18px;
+                    margin:14px 0;
+                    box-shadow:0 8px 22px rgba(15,23,42,0.07);
                 ">
-                    <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start;">
-                        <div style="font-size:13px; font-weight:800; color:#2563eb;">
-                            #{idx} 今日の優先案件
+                    <div style="display:flex; justify-content:space-between; gap:12px; align-items:center;">
+                        <div style="font-size:14px; font-weight:900; color:#2563eb;">
+                            #{idx} {safe(stage_v)}
                         </div>
-                        <div style="font-size:13px; font-weight:900; color:#16a34a;">
+                        <div style="font-size:16px; font-weight:950; color:#16a34a;">
                             {money(profit_v)}
                         </div>
                     </div>
-                    <div style="font-size:19px; font-weight:900; color:#111827; margin-top:6px; line-height:1.35;">
+
+                    <div style="font-size:22px; font-weight:950; color:#111827; margin-top:10px; line-height:1.3;">
                         {safe(customer_v)}
                     </div>
-                    <div style="font-size:14px; color:#64748b; margin-top:3px; line-height:1.5;">
+
+                    <div style="font-size:14px; color:#64748b; margin-top:4px; line-height:1.5;">
                         {safe(subject_v)}
                     </div>
+
                     <div style="
                         background:#f8fafc;
-                        border-radius:14px;
-                        padding:12px;
-                        margin-top:12px;
-                        font-size:15px;
+                        border-radius:16px;
+                        padding:13px;
+                        margin-top:13px;
+                        font-size:16px;
                         color:#0f172a;
-                        line-height:1.6;
+                        line-height:1.7;
                     ">
-                        <b>次にやること：</b><br>
+                        <b>AIの指示：</b><br>
                         {safe(action_v)}
                     </div>
-                    <div style="font-size:12px; color:#64748b; margin-top:10px;">
-                        状態：{safe(status_v)} ｜ 温度：{safe(temp_v)} ｜ 放置：{days_v}日 ｜ 案件ID：{lead_id_v}
+
+                    <div style="
+                        margin-top:14px;
+                        background:#2563eb;
+                        color:white;
+                        text-align:center;
+                        border-radius:14px;
+                        padding:13px 12px;
+                        font-size:16px;
+                        font-weight:900;
+                    ">
+                        {safe(button_v)}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-            st.info("詳細対応・送信は「🔥 要対応」タブで行います。")
+            st.caption("送信・編集・詳細確認は「🔥 要対応」タブで行います。")
 
 
 
