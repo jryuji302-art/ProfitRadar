@@ -1962,9 +1962,31 @@ with tabs[1]:
                 lead_options.append(label)
                 lead_map[label] = lead_id_v
 
-            selected_label = st.selectbox("返信する案件を選択", lead_options, key="hot_reply_select")
+            default_index = 0
+            home_selected_lead_id = st.session_state.get("home_selected_lead_id")
+
+            if home_selected_lead_id:
+                try:
+                    home_selected_lead_id = int(home_selected_lead_id)
+                    for i, label in enumerate(lead_options):
+                        if int(lead_map[label]) == home_selected_lead_id:
+                            default_index = i
+                            break
+                except Exception:
+                    default_index = 0
+
+            selected_label = st.selectbox(
+                "返信する案件を選択",
+                lead_options,
+                index=default_index,
+                key="hot_reply_select"
+            )
+
             lead_id = lead_map[selected_label]
             lead = reply_df[reply_df["id"] == lead_id].iloc[0]
+
+            if home_selected_lead_id and int(lead_id) == int(home_selected_lead_id):
+                st.success("ホームで選択した案件を表示しています。")
 
             st.divider()
 
