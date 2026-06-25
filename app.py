@@ -1794,7 +1794,7 @@ priority_df = df_view[df_view["status"] == "未対応"].sort_values(priority_sor
 
 with tabs[0]:
     st.subheader("🏠 今日の利益")
-    st.caption("開いたら、上から3件だけ処理してください。")
+    st.caption("上から順に対応してください。迷ったら1件目だけでOKです。")
 
     if df_view.empty:
         st.info("表示できる案件がありません。まずGmail解析を実行してください。")
@@ -1822,20 +1822,38 @@ with tabs[0]:
                 v = v.split("<")[0].strip()
             return v or "不明顧客"
 
-        def ceo_action_label(row):
+        def make_action_text(row):
+            raw = str(row.get("next_action", "") or "").strip()
+            status = str(row.get("pipeline_stage", "") or row.get("status", "") or "")
+            profit = int(row.get("profit_for_today", 0) or 0)
+
+            if "返信あり" in status:
+                return "相手から返信があります。今日中に内容を確認して返信してください。"
+            if "契約" in raw or "契約" in status:
+                return "契約条件を確認し、進行可否を今日中に返してください。"
+            if "請求" in raw or "入金" in raw:
+                return "請求・入金条件を確認し、回収漏れを防いでください。"
+            if "電話" in raw:
+                return "今日中に電話して、次の条件を確定してください。"
+            if raw and raw not in ["フォロー確認", "確認"]:
+                return raw
+
+            if profit >= 100000:
+                return "今日返信してください。高利益案件なので放置すると機会損失が大きいです。"
+            return "今日返信して、案件が止まらないように状況確認してください。"
+
+        def button_label(row):
             text = str(row.get("next_action", "") or "")
             status = str(row.get("pipeline_stage", "") or row.get("status", "") or "")
             joined = text + " " + status
 
             if "電話" in joined:
-                return "📞 電話する"
-            if "日程" in joined or "面談" in joined:
-                return "📅 日程確認"
+                return "📞 この案件を電話対応する"
             if "契約" in joined or "請求" in joined:
-                return "💰 契約・請求確認"
-            return "📩 返信する"
+                return "💰 この案件を確認する"
+            return "➡ この案件を対応する"
 
-        def ceo_stage_label(row):
+        def stage_label(row):
             status = str(row.get("pipeline_stage", "") or row.get("status", "") or "")
             temp = str(row.get("sales_temperature", "") or "")
             profit = int(row.get("profit_for_today", 0) or 0)
@@ -1871,7 +1889,7 @@ with tabs[0]:
             today_profit = int(top_df["profit_for_today"].sum())
 
             st.metric("💰 今日回収に動かす利益", money(today_profit))
-            st.info("AI判断：今日は上から3件だけ処理してください。")
+            st.success("AI判断：今日は上から3件だけ対応してください。推定対応時間は15分です。")
 
             st.markdown("### 🔥 今日やること")
 
@@ -1879,32 +1897,26 @@ with tabs[0]:
                 lead_id_v = int(row.get("id", 0) or 0)
                 customer_v = clean_customer_name(row.get("customer", ""))
                 subject_v = safe_text(row.get("subject", ""), "件名なし")
-                action_v = safe_text(row.get("next_action", ""), "返信して状況を前に進めてください")
                 profit_v = int(row.get("profit_for_today", 0) or 0)
-                stage_v = ceo_stage_label(row)
-                button_v = ceo_action_label(row)
+                stage_v = stage_label(row)
+                action_v = make_action_text(row)
+                btn_v = button_label(row)
 
                 with st.container(border=True):
-                    c1, c2 = st.columns([2, 1])
-                    with c1:
-                        st.markdown(f"#### #{idx} {stage_v}")
-                    with c2:
-                        st.markdown(f"### {money(profit_v)}")
-
+                    st.markdown(f"### #{idx} {stage_v}")
+                    st.markdown(f"## {money(profit_v)}")
                     st.markdown(f"### {customer_v}")
                     st.caption(subject_v)
 
                     st.markdown("**AIの指示**")
                     st.write(action_v)
 
-                    st.button(button_v, key=f"home_action_btn_{lead_id_v}", use_container_width=True)
+                    if st.button(btn_v, key=f"home_go_action_{lead_id_v}", use_container_width=True):
+                        st.session_state["selected_lead_id"] = lead_id_v
+                        st.session_state["home_selected_lead_id"] = lead_id_v
+                        st.info("「🔥 要対応」タブを開いて、この案件を処理してください。")
 
             st.caption("送信・編集・詳細確認は「🔥 要対応」タブで行います。")
-
-
-
-
-
 with tabs[1]:
     st.subheader("🔥 要対応")
     st.caption("返信・フォローが必要な案件を確認し、AI文面を編集して送信します。")
