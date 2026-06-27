@@ -10,6 +10,11 @@ from openai_sales_engine import build_sales_ai, fallback_sales_ai
 
 DB = "profit_radar.db"
 
+def require_user_company(user_id, company_id):
+    if user_id is None or company_id is None:
+        raise ValueError("user_id / company_id がないため返信検知を停止しました。")
+    return int(user_id), int(company_id)
+
 def extract_gmail_body(payload):
     """
     Gmail payload から本文を取り出す。
@@ -108,7 +113,8 @@ def init_reply_detection_db():
     conn.close()
 
 
-def get_sent_gmail_replies(limit=30, user_id=1, company_id=1):
+def get_sent_gmail_replies(limit=30, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -127,7 +133,8 @@ def get_sent_gmail_replies(limit=30, user_id=1, company_id=1):
     return rows
 
 
-def already_detected(action_id, gmail_id, user_id=1, company_id=1):
+def already_detected(action_id, gmail_id, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("""
@@ -141,7 +148,8 @@ def already_detected(action_id, gmail_id, user_id=1, company_id=1):
     return row is not None
 
 
-def save_detection(lead_id, action_id, gmail_id, thread_id, from_email, subject, reply_body='', reply_date='', user_id=1, company_id=1):
+def save_detection(lead_id, action_id, gmail_id, thread_id, from_email, subject, reply_body='', reply_date='', user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     init_reply_detection_db()
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -178,7 +186,8 @@ def save_detection(lead_id, action_id, gmail_id, thread_id, from_email, subject,
     conn.close()
 
 
-def update_lead_after_reply(lead_id, user_id=1, company_id=1):
+def update_lead_after_reply(lead_id, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("""
@@ -192,7 +201,8 @@ def update_lead_after_reply(lead_id, user_id=1, company_id=1):
 
 
 
-def get_lead_for_ai(lead_id, user_id=1, company_id=1):
+def get_lead_for_ai(lead_id, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -208,7 +218,8 @@ def get_lead_for_ai(lead_id, user_id=1, company_id=1):
     return dict(row) if row else {}
 
 
-def save_ai_reevaluation(lead_id, ai_text, user_id=1, company_id=1):
+def save_ai_reevaluation(lead_id, ai_text, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("""
@@ -228,7 +239,8 @@ def save_ai_reevaluation(lead_id, ai_text, user_id=1, company_id=1):
     conn.close()
 
 
-def run_ai_reevaluation_after_reply(lead_id, reply_body, user_id=1, company_id=1):
+def run_ai_reevaluation_after_reply(lead_id, reply_body, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     lead = get_lead_for_ai(lead_id, user_id=user_id, company_id=company_id)
     if not lead:
         return ""
@@ -256,7 +268,8 @@ def run_ai_reevaluation_after_reply(lead_id, reply_body, user_id=1, company_id=1
     return ai_text
 
 
-def save_action_log(lead_id, message, user_id=1, company_id=1):
+def save_action_log(lead_id, message, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     conn = sqlite3.connect(DB)
     c = conn.cursor()
     c.execute("""
@@ -277,7 +290,8 @@ def save_action_log(lead_id, message, user_id=1, company_id=1):
 
 
 
-def detect_replies(limit=30, user_id=1, company_id=1):
+def detect_replies(limit=30, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     """
     通常の返信検知。
     最新スレッド確認版に統一する。
@@ -294,7 +308,8 @@ if __name__ == "__main__":
             print(r)
 
 
-def force_detect_latest_replies(limit=30, user_id=1, company_id=1):
+def force_detect_latest_replies(limit=30, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     """
     送信済みGmailスレッドから、自分以外の最新返信を強制確認する。
     既存検知済みでも最新状態を返す確認用。

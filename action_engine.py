@@ -10,12 +10,17 @@ from googleapiclient.discovery import build
 
 DB = "profit_radar.db"
 
+def require_user_company(user_id, company_id):
+    if user_id is None or company_id is None:
+        raise ValueError("user_id / company_id がないため操作を停止しました。")
+    return int(user_id), int(company_id)
+
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
 ]
 
-def get_gmail_service(user_id=1, company_id=1):
+def get_gmail_service(user_id=None, company_id=None):
     from gmail_oauth_web import get_gmail_service_web
     return get_gmail_service_web(user_id=user_id, company_id=company_id)
 
@@ -43,7 +48,8 @@ def init_action_db():
     conn.commit()
     conn.close()
 
-def get_lead(lead_id, user_id=1, company_id=1):
+def get_lead(lead_id, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
@@ -55,7 +61,8 @@ def get_lead(lead_id, user_id=1, company_id=1):
     conn.close()
     return dict(row) if row else None
 
-def get_original_email_meta(gmail_id, user_id=1, company_id=1):
+def get_original_email_meta(gmail_id, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     service = get_gmail_service(user_id=user_id, company_id=company_id)
     msg = service.users().messages().get(
         userId="me",
@@ -173,8 +180,8 @@ def save_action(
     safety_errors="",
     safety_warnings="",
     gmail_result_id="",
-    user_id=1,
-    company_id=1
+    user_id=None,
+    company_id=None
 ):
     ensure_action_columns()
 
@@ -213,9 +220,10 @@ def send_gmail_reply(
     lead_id=None,
     action_type="reply",
     force_send=False,
-    user_id=1,
-    company_id=1
+    user_id=None,
+    company_id=None
 ):
+    user_id, company_id = require_user_company(user_id, company_id)
     from safety_engine import check_message_safety, check_duplicate_send
 
     safety = check_message_safety(to_email, subject, body)

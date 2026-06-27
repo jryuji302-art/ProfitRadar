@@ -10,6 +10,11 @@ from googleapiclient.discovery import build
 
 DB = "profit_radar.db"
 
+def require_user_company(user_id, company_id):
+    if user_id is None or company_id is None:
+        raise ValueError("user_id / company_id がないためGmail OAuth操作を停止しました。")
+    return int(user_id), int(company_id)
+
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
@@ -63,7 +68,8 @@ def create_flow():
         autogenerate_code_verifier=False,
     )
 
-def get_authorization_url(user_id=1, company_id=1):
+def get_authorization_url(user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     flow = create_flow()
     state = f"user:{int(user_id)}|company:{int(company_id)}"
     authorization_url, state = flow.authorization_url(
@@ -76,22 +82,28 @@ def get_authorization_url(user_id=1, company_id=1):
 
 
 def parse_oauth_state(state):
-    try:
-        text = str(state or "")
-        user_id = 1
-        company_id = 1
+    """
+    OAuth stateから user_id / company_id を復元する。
+    マルチユーザー安全性のため、失敗時に 1,1 へフォールバックしない。
+    """
+    text = str(state or "").strip()
+    if not text:
+        raise ValueError("OAuth state が空です。user_id / company_id を復元できません。")
 
-        for part in text.split("|"):
-            if part.startswith("user:"):
-                user_id = int(part.replace("user:", "").strip())
-            elif part.startswith("company:"):
-                company_id = int(part.replace("company:", "").strip())
+    user_id = None
+    company_id = None
 
-        return user_id, company_id
-    except Exception:
-        return 1, 1
+    for part in text.split("|"):
+        part = part.strip()
+        if part.startswith("user:"):
+            user_id = int(part.replace("user:", "").strip())
+        elif part.startswith("company:"):
+            company_id = int(part.replace("company:", "").strip())
 
-def save_credentials(creds, user_id=1, company_id=1):
+    return require_user_company(user_id, company_id)
+
+def save_credentials(creds, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     init_gmail_connections_table()
 
     token_json = creds.to_json()
@@ -125,14 +137,16 @@ def save_credentials(creds, user_id=1, company_id=1):
     conn.commit()
     conn.close()
 
-def exchange_code_for_token(code, user_id=1, company_id=1):
+def exchange_code_for_token(code, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     flow = create_flow()
     flow.fetch_token(code=code)
     creds = flow.credentials
     save_credentials(creds, user_id=user_id, company_id=company_id)
     return creds
 
-def load_credentials(user_id=1, company_id=1):
+def load_credentials(user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     init_gmail_connections_table()
 
     conn = sqlite3.connect(DB)
@@ -152,7 +166,8 @@ def load_credentials(user_id=1, company_id=1):
     data = json.loads(row[0])
     return Credentials.from_authorized_user_info(data, SCOPES)
 
-def get_gmail_service_web(user_id=1, company_id=1):
+def get_gmail_service_web(user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     creds = load_credentials(user_id=user_id, company_id=company_id)
 
     if not creds:

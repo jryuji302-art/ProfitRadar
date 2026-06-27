@@ -6,3 +6,9 @@ token.json
 credentials.json
 *.db-journal
 .DS_Store
+profit_radar.db
+old_backups/
+tools/
+*.db
+profit_radar_ui_audit_report.md
+logs/

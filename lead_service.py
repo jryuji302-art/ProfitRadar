@@ -5,6 +5,7 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 
 from revenue_engine import analyze_email
+from profit_estimator import estimate_profit_from_text
 
 DB = "profit_radar.db"
 
@@ -46,15 +47,57 @@ def save_email_as_lead(email, user_id=None, company_id=None):
         conn.close()
         return False
 
-    estimated_profit = analysis.get("estimated_profit", 0)
+    estimated_profit = int(analysis.get("estimated_profit", 0) or 0)
     risk_level = analysis.get("risk_level", "中")
     next_action = analysis.get("next_action", "フォロー確認")
     reason = analysis.get("reason", "")
     category = analysis.get("category", "不明")
-    opportunity_score = analysis.get("opportunity_score", 0)
+    opportunity_score = int(analysis.get("opportunity_score", 0) or 0)
     hot_lead = analysis.get("hot_lead", 0)
-    recoverable_profit = analysis.get("recoverable_profit", 0)
+    recoverable_profit = int(analysis.get("recoverable_profit", 0) or 0)
     pipeline_stage = analysis.get("pipeline_stage", "新規")
+
+    # Profit Estimator v1:
+    # メール本文の単価・人数・日数から根拠付きで控えめに再計算する。
+    # 既存Revenue Engineが過大評価した場合は補正する。
+    profit_estimate = estimate_profit_from_text(
+        subject=subject,
+        content=body,
+        category=category,
+        actual_revenue=0
+    )
+
+    v1_estimated_profit = int(profit_estimate.get("estimated_profit", 0) or 0)
+    v1_recoverable_profit = int(profit_estimate.get("recoverable_profit", 0) or 0)
+    profit_basis = str(profit_estimate.get("basis", "") or "")
+    profit_confidence = int(profit_estimate.get("confidence", 0) or 0)
+    unit_price_detected = int(profit_estimate.get("unit_price", 0) or 0)
+    people_detected = float(profit_estimate.get("people", 1) or 1)
+    days_detected = float(profit_estimate.get("days", 1) or 1)
+
+    default_over_estimates = {70000, 80000, 120000, 150000, 200000}
+
+    if v1_estimated_profit > 0 and (
+        estimated_profit <= 0 or estimated_profit > v1_estimated_profit * 3
+    ):
+        estimated_profit = v1_estimated_profit
+        recoverable_profit = v1_recoverable_profit
+        reason = f"{reason} / Profit Estimator v1で過大推定を補正: {profit_basis}"
+
+    elif v1_estimated_profit > 0 and recoverable_profit <= 0:
+        recoverable_profit = v1_recoverable_profit
+
+    elif v1_estimated_profit <= 0 and estimated_profit in default_over_estimates:
+        # 明記金額がないのにカテゴリ固定値だけで高額表示しない。
+        # 案件としては保存するが、金額は「未確定」として扱う。
+        estimated_profit = 0
+        recoverable_profit = 0
+        profit_basis = "明記金額なし。金額未確定。相手に金額・条件確認が必要。"
+        profit_confidence = 20
+        unit_price_detected = 0
+        people_detected = 0
+        days_detected = 0
+        reason = f"{reason} / 金額根拠なしのため推定金額を未確定化"
 
     customer = email.get("sender", "")[:80]
 
@@ -63,8 +106,9 @@ def save_email_as_lead(email, user_id=None, company_id=None):
     (gmail_id, customer, subject, content, estimated_profit, risk_level,
      neglected_days, next_action, status, created_at, reason, email_date, memo,
      category, opportunity_score, hot_lead, recoverable_profit, pipeline_stage,
-     user_id, company_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     user_id, company_id,
+     profit_basis, profit_confidence, unit_price_detected, people_detected, days_detected)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         gmail_id,
         customer,
@@ -85,7 +129,12 @@ def save_email_as_lead(email, user_id=None, company_id=None):
         recoverable_profit,
         pipeline_stage,
         user_id,
-        company_id
+        company_id,
+        profit_basis,
+        profit_confidence,
+        unit_price_detected,
+        people_detected,
+        days_detected
     ))
 
     conn.commit()

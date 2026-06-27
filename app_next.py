@@ -578,6 +578,64 @@ def generate_follow_message(customer, subject, content, category="", history="")
 # UI Helpers
 # =========================
 
+
+
+def safe_text(value, default=""):
+    if value is None:
+        return default
+
+    try:
+        import pandas as pd
+        if pd.isna(value):
+            return default
+    except Exception:
+        pass
+
+    value = str(value)
+
+    if value.lower() == "nan":
+        return default
+
+    return value
+
+
+
+
+def clean_reply_body(body):
+    body = safe_text(body, "")
+    if not body:
+        return ""
+
+    cut_patterns = [
+        "\r\n\r\n2026年",
+        "\n\n2026年",
+        "\r\n2026年",
+        "\n2026年",
+        "\r\n>",
+        "\n>",
+        "On ",
+        " wrote:",
+    ]
+
+    cleaned = body
+
+    for p in cut_patterns:
+        idx = cleaned.find(p)
+        if idx > 0:
+            cleaned = cleaned[:idx]
+            break
+
+    cleaned = cleaned.strip()
+
+    lines = []
+    for line in cleaned.splitlines():
+        if line.strip().startswith(">"):
+            continue
+        lines.append(line)
+
+    return "\n".join(lines).strip()
+
+
 def safe(v):
     return html.escape(str(v if v is not None else ""))
 
@@ -1306,6 +1364,7 @@ dev_mode = str(st.query_params.get("dev", "0")) == "1"
 
 tab_names = [
     "🏠 今日の利益",
+    "📨 返信あり",
     "🔥 今すぐ返信",
     "👥 顧客",
     "📈 実績",
@@ -1349,7 +1408,196 @@ with tabs[0]:
             lead_card(row)
 
 
+
 with tabs[1]:
+    st.subheader("📨 返信あり")
+    st.caption("返信検知ログを、社長が判断しやすい案件管理画面として表示します。")
+
+    current_user_id = st.session_state.get("user_id", 1)
+    current_company_id = st.session_state.get("company_id", 1)
+
+    try:
+        conn = sqlite3.connect(DB)
+
+        reply_inbox_df = pd.read_sql_query(
+            """
+            SELECT
+                r.id AS reply_log_id,
+                r.lead_id,
+                r.action_id,
+                r.gmail_id AS reply_gmail_id,
+                r.thread_id,
+                r.from_email,
+                r.subject AS reply_subject,
+                r.detected_at,
+                r.reply_body,
+                r.reply_date,
+
+                l.customer,
+                l.subject AS lead_subject,
+                l.content AS lead_content,
+                l.estimated_profit,
+                l.recoverable_profit,
+                l.actual_revenue,
+                l.opportunity_score,
+                l.pipeline_stage,
+                l.status,
+                l.memo,
+                l.category,
+
+                a.subject AS sent_subject,
+                a.body AS last_sent_body,
+                a.message AS last_sent_message,
+                a.sent_at,
+                a.to_email
+            FROM reply_detection_logs r
+            LEFT JOIN profit_leads l
+                ON r.lead_id = l.id
+            LEFT JOIN profit_actions a
+                ON r.action_id = a.id
+            WHERE
+                r.id IN (
+                    SELECT MAX(id)
+                    FROM reply_detection_logs
+                    WHERE user_id = ? AND company_id = ?
+                    GROUP BY lead_id, action_id, from_email, subject
+                )
+            ORDER BY r.id DESC
+            LIMIT 50
+            """,
+            conn,
+            params=(current_user_id, current_company_id)
+        )
+
+        conn.close()
+
+        if reply_inbox_df.empty:
+            st.info("現在、確認が必要な返信はありません。")
+        else:
+            total_replies = len(reply_inbox_df)
+            total_expected = int(reply_inbox_df["recoverable_profit"].fillna(0).sum())
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("返信あり", f"{total_replies}件")
+            c2.metric("回収候補", money(total_expected))
+            c3.metric("最優先", "返信確認")
+
+            st.divider()
+
+            for _, row in reply_inbox_df.iterrows():
+                customer = row.get("customer") or row.get("from_email") or "不明顧客"
+                lead_subject = row.get("lead_subject") or row.get("reply_subject") or "件名なし"
+                detected_at = row.get("detected_at") or "-"
+                score = int(row.get("opportunity_score") or 0)
+                recoverable = int(row.get("recoverable_profit") or row.get("estimated_profit") or 0)
+                stage = row.get("pipeline_stage") or "未分類"
+
+                # 簡易AI案件参謀ロジック V1
+                if score >= 80:
+                    ai_judgement = "商談継続・優先対応"
+                    ai_reason = "案件スコアが高く、返信が発生しているため温度感が残っています。"
+                    ai_risk = "返信対応が遅れると競合・自然消滅のリスクがあります。"
+                    ai_action = "本日中に返信。条件確認または次回日程の提示。"
+                elif score >= 50:
+                    ai_judgement = "継続確認"
+                    ai_reason = "返信はあるが、成約確度は中程度です。"
+                    ai_risk = "曖昧なまま放置すると案件化しない可能性があります。"
+                    ai_action = "3日以内に要件・予算・時期を確認。"
+                else:
+                    ai_judgement = "低温度・様子見"
+                    ai_reason = "スコアが低く、利益化には追加確認が必要です。"
+                    ai_risk = "工数過多になる可能性があります。"
+                    ai_action = "短文で意向確認。反応が薄ければ優先度を下げる。"
+
+                with st.container(border=True):
+                    top1, top2, top3 = st.columns([2, 1, 1])
+                    top1.markdown(f"### {customer}")
+                    top2.metric("想定利益", money(recoverable))
+                    top3.metric("Score", score)
+
+                    st.markdown(f"**案件:** {lead_subject}")
+                    st.caption(f"返信検知: {detected_at}｜ステージ: {stage}")
+
+                    with st.expander("内容を確認", expanded=True):
+                        st.markdown("#### 最後に送った内容")
+                        last_sent = row.get("last_sent_body") or row.get("last_sent_message") or "送信内容が保存されていません。"
+                        st.write(last_sent)
+
+                        st.markdown("#### 相手の返信")
+                        reply_body = clean_reply_body(row.get("reply_body") or "")
+                        if reply_body:
+                            st.write(reply_body)
+                        else:
+                            st.info("この返信ログには本文がまだ保存されていません。Gmail返信検知をもう一度実行すると、新規返信から本文保存されます。")
+                        st.caption(f"From: {row.get('from_email') or '-'}｜件名: {row.get('reply_subject') or '-'}｜返信日時: {row.get('reply_date') or '-'}｜Gmail ID: {row.get('reply_gmail_id') or '-'}")
+
+                        st.markdown("#### AI案件参謀")
+                        st.success(f"判断: {ai_judgement}")
+                        st.write(f"理由: {ai_reason}")
+                        st.warning(f"リスク: {ai_risk}")
+                        st.write(f"推奨アクション: {ai_action}")
+
+                    b1, b2, b3 = st.columns(3)
+                    lead_id_val = int(row.get("lead_id") or 0)
+                    reply_log_id_val = int(row.get("reply_log_id") or 0)
+
+                    with b1:
+                        if st.button("対応済みにする", key=f"reply_done_{reply_log_id_val}"):
+                            try:
+                                if lead_id_val:
+                                    update_lead_status(
+                                        lead_id_val,
+                                        "対応済み",
+                                        user_id=current_user_id,
+                                        company_id=current_company_id
+                                    )
+                                    save_action_log(
+                                        lead_id_val,
+                                        "reply_inbox_done",
+                                        "Reply Inboxから対応済みに変更",
+                                        "done",
+                                        user_id=current_user_id,
+                                        company_id=current_company_id
+                                    )
+                                st.success("対応済みにしました。")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"対応済み保存エラー: {e}")
+
+                    with b2:
+                        if st.button("7日後フォロー", key=f"reply_follow_{reply_log_id_val}"):
+                            try:
+                                if lead_id_val:
+                                    update_lead_status(
+                                        lead_id_val,
+                                        "保留",
+                                        user_id=current_user_id,
+                                        company_id=current_company_id
+                                    )
+                                    save_action_log(
+                                        lead_id_val,
+                                        "reply_follow_7days",
+                                        "Reply Inboxから7日後フォロー予定に変更",
+                                        "pending",
+                                        user_id=current_user_id,
+                                        company_id=current_company_id
+                                    )
+                                st.info("保留にしました。7日後フォロー予定として履歴保存しました。")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"7日後フォロー保存エラー: {e}")
+
+                    with b3:
+                        if st.button("顧客詳細へ", key=f"reply_customer_{reply_log_id_val}"):
+                            st.session_state["selected_lead_id"] = lead_id_val
+                            st.info("顧客タブで該当案件を確認してください。")
+
+    except Exception as e:
+        st.error(f"Reply Inbox 表示エラー: {e}")
+
+
+
+with tabs[2]:
     st.subheader("🔥 今すぐ返信")
     st.caption("未対応案件から、回収可能利益・放置日数・スコアが高い順に返信対象を表示します。")
 
@@ -1446,37 +1694,6 @@ with tabs[1]:
                 st.info("AI詳細判断が取得できないため、保存済みの案件情報から簡易判断を表示しています。")
 
             st.divider()
-            st.markdown("### 実利益を記録")
-            st.caption("実際に回収できた金額を入力すると、案件は自動で成約扱いになります。")
-
-            actual_revenue_input = st.number_input(
-                "実回収利益",
-                min_value=0,
-                step=1000,
-                value=int(lead.get("actual_revenue", 0) or 0),
-                key=f"hot_actual_revenue_{lead_id}"
-            )
-
-            if st.button("実利益を保存", key=f"hot_save_actual_revenue_{lead_id}"):
-                update_actual_revenue(
-                    lead_id,
-                    actual_revenue_input,
-                    user_id=st.session_state.get("user_id"),
-                    company_id=st.session_state.get("company_id")
-                )
-                save_ai_learning(
-                    lead_id=int(lead_id),
-                    customer=str(lead.get("customer", "")),
-                    subject=str(lead.get("subject", "")),
-                    ai_decision=str(lead.get("next_action", "")),
-                    result="成約" if int(actual_revenue_input or 0) > 0 else "実利益更新",
-                    actual_revenue=int(actual_revenue_input or 0),
-                    note="今すぐ返信タブから実利益を保存"
-                )
-                st.success("実利益を保存しました。")
-                st.rerun()
-
-            st.divider()
             st.markdown("### フォロー文")
 
             safe_subject = str(lead.get("subject", "") or "").strip()
@@ -1527,7 +1744,7 @@ with tabs[1]:
                 key=f"hot_to_{lead_id}"
             )
 
-            col_save, col_send, col_hold, col_done = st.columns(4)
+            col_save, col_send = st.columns(2)
 
             with col_save:
                 if st.button("フォロー文を保存", key=f"hot_save_follow_{lead_id}"):
@@ -1613,22 +1830,9 @@ with tabs[1]:
                             pass
                         st.error(f"Gmail送信エラー: {e}")
 
-            with col_hold:
-                if st.button("保留", key=f"hot_hold_{lead_id}"):
-                    update_lead_status(int(lead_id), "保留", user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
-                    save_action_log(int(lead_id), "status_update", "保留に変更", "pending")
-                    st.warning("保留にしました。")
-                    st.rerun()
-
-            with col_done:
-                if st.button("対応済み", key=f"hot_done_{lead_id}"):
-                    update_lead_status(int(lead_id), "対応済み", user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
-                    save_action_log(int(lead_id), "status_update", "対応済みに変更", "done")
-                    st.success("対応済みにしました。")
-                    st.rerun()
 
 
-with tabs[2]:
+with tabs[3]:
     st.subheader("👥 顧客")
 
     customer_df = df_view.groupby("customer").agg(
@@ -1658,6 +1862,12 @@ with tabs[2]:
         st.divider()
         st.markdown("### 顧客詳細")
 
+        selected_customer = st.selectbox(
+            "詳細を見る顧客",
+            customer_df["customer"].tolist(),
+            key="customer_detail_select"
+        )
+
         try:
             customer_summary = get_customer_revenue_summary(selected_customer)
             c1, c2, c3, c4 = st.columns(4)
@@ -1667,12 +1877,6 @@ with tabs[2]:
             c4.metric("最大未対応日数", int(customer_summary.get("max_neglected_days", 0) or 0))
         except Exception as e:
             st.warning(f"顧客収益サマリーを表示できませんでした: {e}")
-
-        selected_customer = st.selectbox(
-            "詳細を見る顧客",
-            customer_df["customer"].tolist(),
-            key="customer_detail_select"
-        )
 
         customer_leads = df_view[df_view["customer"] == selected_customer].copy()
 
@@ -1725,22 +1929,53 @@ with tabs[2]:
                     st.success("メモを保存しました。")
                     st.rerun()
 
+                st.markdown("#### 実利益")
+                actual_key = f"cust_actual_revenue_{lead_row.get('id')}"
+                actual_value = st.number_input(
+                    "実回収利益",
+                    min_value=0,
+                    step=1000,
+                    value=int(lead_row.get("actual_revenue", 0) or 0),
+                    key=actual_key
+                )
+
+                if st.button("実利益を保存", key=f"save_cust_actual_revenue_{lead_row.get('id')}"):
+                    update_actual_revenue(
+                        int(lead_row.get("id")),
+                        actual_value,
+                        user_id=st.session_state.get("user_id"),
+                        company_id=st.session_state.get("company_id")
+                    )
+                    save_ai_learning(
+                        lead_id=int(lead_row.get("id")),
+                        customer=str(lead_row.get("customer", "")),
+                        subject=str(lead_row.get("subject", "")),
+                        ai_decision="顧客タブから実利益保存",
+                        result="成約" if int(actual_value or 0) > 0 else "実利益更新",
+                        actual_revenue=int(actual_value or 0),
+                        note="顧客CRMから実利益を保存"
+                    )
+                    st.success("実利益を保存しました。")
+                    st.rerun()
+
         st.markdown("#### この顧客の保存・送信履歴")
 
         actions_df = get_actions(user_id=st.session_state.get("user_id"), company_id=st.session_state.get("company_id"))
         if not actions_df.empty and "lead_id" in actions_df.columns:
             customer_lead_ids = customer_leads["id"].tolist()
-            customer_actions = actions_df[actions_df["lead_id"].isin(customer_lead_ids)]
+            customer_actions = actions_df[actions_df["lead_id"].isin(customer_lead_ids)].copy()
+            if "action_type" in customer_actions.columns:
+                customer_actions = customer_actions[customer_actions["action_type"] != "reply_detected"]
 
             if customer_actions.empty:
                 st.info("この顧客の履歴はまだありません。")
             else:
                 for _, action in customer_actions.iterrows():
-                    label = str(action.get("action_type", "") or "")
-                    subject_v = str(action.get("subject", "") or "")
-                    status_v = str(action.get("status", "") or action.get("result", "") or "")
-                    created_v = str(action.get("created_at", "") or "")
-                    body_v = str(action.get("body", "") or action.get("message", "") or "")
+                    label = safe_text(action.get("action_type", ""), "履歴")
+                    subject_v = safe_text(action.get("subject", ""), "")
+                    status_v = safe_text(action.get("status", ""), "") or safe_text(action.get("result", ""), "")
+                    created_v = safe_text(action.get("created_at", ""), "")
+                    body_v = safe_text(action.get("body", ""), "") or safe_text(action.get("message", ""), "")
 
                     with st.expander(f"{label}｜{created_v[:16]}｜{subject_v[:30]}"):
                         st.write("状態：", status_v)
@@ -1748,6 +1983,75 @@ with tabs[2]:
                         st.text_area("本文", body_v, height=180, key=f"cust_action_{action.get('id', '')}")
         else:
             st.info("履歴はまだありません。")
+
+        st.markdown("### この顧客の返信履歴")
+
+        try:
+            import sqlite3
+
+            conn = sqlite3.connect(DB)
+
+            customer_lead_ids = customer_leads["id"].tolist()
+
+            if customer_lead_ids:
+                placeholders = ",".join(["?"] * len(customer_lead_ids))
+
+                reply_df = pd.read_sql_query(
+                    f"""
+                    SELECT
+                        MAX(id) AS id,
+                        lead_id,
+                        from_email,
+                        subject,
+                        reply_body,
+                        reply_date,
+                        detected_at
+                    FROM reply_detection_logs
+                    WHERE lead_id IN ({placeholders})
+                      AND reply_body IS NOT NULL
+                      AND TRIM(reply_body) != ''
+                    GROUP BY lead_id, from_email, subject, reply_body
+                    ORDER BY id DESC
+                    LIMIT 50
+                    """,
+                    conn,
+                    params=customer_lead_ids
+                )
+
+                if reply_df.empty:
+                    st.info("返信履歴はまだありません。")
+                else:
+                    for _, reply in reply_df.iterrows():
+
+                        subject_v = safe_text(reply.get("subject", ""), "返信")
+                        date_v = safe_text(reply.get("reply_date", ""), "") or safe_text(reply.get("detected_at", ""), "")
+                        title = f"{subject_v}｜{date_v[:16]}"
+
+                        with st.expander(title):
+
+                            st.write(
+                                "送信者:",
+                                safe_text(reply.get("from_email", ""), "-")
+                            )
+
+                            body = clean_reply_body(reply.get("reply_body", ""))
+
+                            if body:
+                                # 引用返信が長くなりすぎる場合はまず全文表示
+                                st.text_area(
+                                    "返信本文",
+                                    body,
+                                    height=180,
+                                    disabled=True,
+                                    key=f"reply_body_{reply.name}"
+                                )
+                            else:
+                                st.info("返信本文は未取得です。")
+
+            conn.close()
+
+        except Exception as e:
+            st.warning(f"返信履歴表示エラー: {e}")
 
 if False:
     st.subheader("フォローアップ")
@@ -1785,7 +2089,7 @@ if False:
             save_action_log(int(lead_id), "status_update", "未対応に変更", "open")
             st.info("未対応に戻しました。")
 
-with tabs[3]:
+with tabs[4]:
     st.subheader("📈 実績")
     st.caption("今日・今月・累計の利益と、利益を生んだ顧客を確認します。")
 
@@ -1968,7 +2272,7 @@ with tabs[3]:
             st.dataframe(list_df, use_container_width=True, hide_index=True)
 
 
-with tabs[4]:
+with tabs[5]:
     st.subheader("⚙️ 設定")
     render_gmail_oauth_settings()
     # AI分析履歴 は app_dev.py に分離済み

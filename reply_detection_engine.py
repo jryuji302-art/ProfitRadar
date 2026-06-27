@@ -8,6 +8,11 @@ from action_engine import get_gmail_service
 
 DB = "profit_radar.db"
 
+def require_user_company(user_id, company_id):
+    if user_id is None or company_id is None:
+        raise ValueError("user_id / company_id がないため返信検知を停止しました。")
+    return int(user_id), int(company_id)
+
 def init_reply_detection_db():
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -23,10 +28,21 @@ def init_reply_detection_db():
         detected_at TEXT
     )
     """)
+    existing_cols = [r[1] for r in c.execute("PRAGMA table_info(reply_detection_logs)").fetchall()]
+    for col, typ in {
+        "user_id": "INTEGER",
+        "company_id": "INTEGER",
+        "reply_body": "TEXT",
+        "reply_date": "TEXT",
+    }.items():
+        if col not in existing_cols:
+            c.execute(f"ALTER TABLE reply_detection_logs ADD COLUMN {col} {typ}")
+
     conn.commit()
     conn.close()
 
-def save_reply_detection_log(lead_id, action_id, gmail_id, thread_id, from_email, subject, user_id=1, company_id=1):
+def save_reply_detection_log(lead_id, action_id, gmail_id, thread_id, from_email, subject, user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     init_reply_detection_db()
     conn = sqlite3.connect(DB)
     c = conn.cursor()
@@ -68,7 +84,8 @@ def _get_my_email(service):
     profile = service.users().getProfile(userId="me").execute()
     return profile.get("emailAddress", "").lower()
 
-def detect_replies(user_id=1, company_id=1):
+def detect_replies(user_id=None, company_id=None):
+    user_id, company_id = require_user_company(user_id, company_id)
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
